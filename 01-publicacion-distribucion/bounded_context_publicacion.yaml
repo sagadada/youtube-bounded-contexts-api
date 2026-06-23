@@ -673,27 +673,3 @@ components:
           type: array
           items:
             type: string
-
-    VideoProcessingCompletedEvent:
-      type: object
-      description: Payload del evento 'content.playback.video_processing_completed'. Define el contrato de integración con el Bounded Context de Catálogo Editorial.
-      required: [eventId, timestamp, assetId, creatorId, durationSeconds]
-      properties:
-        eventId:
-          type: string
-          format: uuid
-        timestamp:
-          type: string
-          format: date-time
-        assetId:
-          type: string
-          description: Identificador del asset listo. Catálogo usará este ID para habilitar la publicación.
-        creatorId:
-          type: string
-        durationSeconds:
-          type: integer
-        availableQualities:
-          type: array
-          items:
-            type: string
-          example: ["360p", "720p", "1080p"]
