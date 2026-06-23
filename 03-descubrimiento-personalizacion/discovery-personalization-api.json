@@ -1,0 +1,1725 @@
+{
+  "openapi": "3.0.4",
+  "info": {
+    "title": "Descubrimiento y Personalización API",
+    "description": "API para búsqueda de contenido, feeds personalizados, recomendaciones, tendencias y captura de señales de ranking. Bounded Context independiente dentro de la plataforma de video.\n\n### Eventos que consume\n* `catalog.content.published` / `updated` / `restricted` **(Catálogo)**: Actualiza o remueve ítems del índice de búsqueda.\n* `audience.engagement.registered` **(Audiencia)**: Alimenta el perfil de intereses del usuario.\n* `playback.session.completed` **(Publicación)**: Registra watch time efectivo.\n\n### Eventos que emite\n* `discovery.search.performed`: Emitido cuando un usuario realiza una búsqueda.\n* `discovery.recommendation.served`: Emitido para analytics cuando se entrega un feed.\n\n### Restricciones de diseño\n* Devuelve **referencias a contenido** mediante IDs, no duplica la metadata editorial completa ni provee el stream de video.\n* No define reglas de visibilidad, delega y respeta estrictamente las restricciones dictadas por el contexto de Catálogo.\n* El motor de ranking y la personalización son responsabilidad exclusiva y aislada de este contexto.",
+    "contact": {
+      "name": "Equipo Descubrimiento",
+      "email": "discovery@platform.com"
+    }
+  },
+  "servers": [
+    {
+      "url": "https://api.platform.com/discovery/v1",
+      "description": "Producción"
+    },
+    {
+      "url": "https://staging-api.platform.com/discovery/v1",
+      "description": "Staging"
+    }
+  ],
+  "tags": [
+    {
+      "name": "search",
+      "description": "Búsqueda de videos y canales (RF-D1)"
+    },
+    {
+      "name": "feed",
+      "description": "Feed de inicio personalizado (RF-D2)"
+    },
+    {
+      "name": "related",
+      "description": "Contenido relacionado (RF-D3)"
+    },
+    {
+      "name": "trending",
+      "description": "Tendencias y exploración (RF-D4)"
+    },
+    {
+      "name": "signals",
+      "description": "Captura de señales de interés (RF-D5)"
+    },
+    {
+      "name": "index",
+      "description": "Indexación de contenido (RF-D6)"
+    }
+  ],
+  "security": [
+    {
+      "BearerAuth": []
+    }
+  ],
+  "paths": {
+    "/search": {
+      "get": {
+        "tags": [
+          "search"
+        ],
+        "operationId": "searchContent",
+        "summary": "Buscar contenido y canales",
+        "description": "Busca videos y/o canales por texto libre con soporte de filtros y ordenamiento.",
+        "security": [
+          {}
+        ],
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "description": "Texto de búsqueda",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            }
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "description": "Tipo de resultado",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "video",
+                "channel",
+                "all"
+              ],
+              "default": "all"
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "description": "Criterio de ordenamiento",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "relevance",
+                "date",
+                "popularity",
+                "rating"
+              ],
+              "default": "relevance"
+            }
+          },
+          {
+            "name": "uploadedAfter",
+            "in": "query",
+            "description": "Filtrar por fecha de publicación (ISO 8601)",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "uploadedBefore",
+            "in": "query",
+            "description": "Filtrar por fecha de publicación (ISO 8601)",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "durationMin",
+            "in": "query",
+            "description": "Duración mínima en segundos",
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "durationMax",
+            "in": "query",
+            "description": "Duración máxima en segundos",
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "categoryId",
+            "in": "query",
+            "description": "ID de categoría para filtrar",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "description": "Número de página (base 1)",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            }
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "description": "Resultados por página",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50,
+              "default": 20
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Resultados de búsqueda",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchResultPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/search/suggestions": {
+      "get": {
+        "tags": [
+          "search"
+        ],
+        "operationId": "getSearchSuggestions",
+        "summary": "Obtener sugerencias de búsqueda (autocomplete)",
+        "description": "Devuelve sugerencias de términos mientras el usuario escribe.",
+        "security": [
+          {}
+        ],
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "description": "Prefijo de texto",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Número máximo de sugerencias",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 15,
+              "default": 8
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lista de sugerencias",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchSuggestionsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/feed/home": {
+      "get": {
+        "tags": [
+          "feed"
+        ],
+        "operationId": "getHomeFeed",
+        "summary": "Obtener feed de inicio personalizado",
+        "description": "Devuelve el feed de inicio personalizado para el usuario autenticado o para una sesión anónima. Incluye la razón de recomendación de cada ítem.",
+        "parameters": [
+          {
+            "name": "sessionId",
+            "in": "query",
+            "description": "ID de sesión anónima (cuando no hay usuario autenticado)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            }
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50,
+              "default": 20
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Feed de inicio",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeedPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/related/{contentId}": {
+      "get": {
+        "tags": [
+          "related"
+        ],
+        "operationId": "getRelatedContent",
+        "summary": "Obtener contenido relacionado a un video",
+        "description": "Devuelve videos relacionados a un contenido dado, considerando similitud temática, historial del usuario y señales de engagement.",
+        "security": [
+          {}
+        ],
+        "parameters": [
+          {
+            "name": "contentId",
+            "in": "path",
+            "required": true,
+            "description": "ID del contenido de referencia",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Número de resultados",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 30,
+              "default": 15
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Videos relacionados",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RelatedContentResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/trending": {
+      "get": {
+        "tags": [
+          "trending"
+        ],
+        "operationId": "getTrending",
+        "summary": "Obtener contenido trending",
+        "description": "Devuelve el contenido en tendencia filtrado por región y/o categoría.",
+        "security": [
+          {}
+        ],
+        "parameters": [
+          {
+            "name": "regionCode",
+            "in": "query",
+            "description": "Código ISO 3166-1 alpha-2 de región",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Z]{2}$"
+            }
+          },
+          {
+            "name": "categoryId",
+            "in": "query",
+            "description": "ID de categoría",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50,
+              "default": 20
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Contenido trending",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrendingResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/categories": {
+      "get": {
+        "tags": [
+          "trending"
+        ],
+        "operationId": "listCategories",
+        "summary": "Listar categorías disponibles",
+        "description": "Devuelve las categorías o temas disponibles para exploración.",
+        "security": [
+          {}
+        ],
+        "responses": {
+          "200": {
+            "description": "Lista de categorías",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CategoriesResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/categories/{categoryId}/content": {
+      "get": {
+        "tags": [
+          "trending"
+        ],
+        "operationId": "getCategoryContent",
+        "summary": "Explorar contenido por categoría",
+        "description": "Devuelve contenido de una categoría o tema específico con paginación.",
+        "security": [
+          {}
+        ],
+        "parameters": [
+          {
+            "name": "categoryId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "trending",
+                "date",
+                "popularity"
+              ],
+              "default": "trending"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            }
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50,
+              "default": 20
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Contenido de la categoría",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CategoryContentPage"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/signals/impression": {
+      "post": {
+        "tags": [
+          "signals"
+        ],
+        "operationId": "recordImpression",
+        "summary": "Registrar impresión de un ítem en feed",
+        "description": "Registra que un usuario vio un ítem en su feed (fue renderizado en pantalla).",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImpressionSignal"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Señal registrada"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/signals/click": {
+      "post": {
+        "tags": [
+          "signals"
+        ],
+        "operationId": "recordClick",
+        "summary": "Registrar click en ítem recomendado",
+        "description": "Registra que un usuario hizo click en un ítem recomendado o resultado de búsqueda.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClickSignal"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Señal registrada"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/signals/watch-time": {
+      "post": {
+        "tags": [
+          "signals"
+        ],
+        "operationId": "recordWatchTime",
+        "summary": "Registrar tiempo de visualización",
+        "description": "Registra el tiempo que un usuario vio un contenido como señal de interés para el modelo de ranking.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WatchTimeSignal"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Señal registrada"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/users/{userId}/interest-profile": {
+      "get": {
+        "tags": [
+          "signals"
+        ],
+        "operationId": "getUserInterestProfile",
+        "summary": "Obtener perfil de intereses del usuario",
+        "description": "Devuelve el perfil de intereses inferido a partir de las señales del usuario.",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Perfil de intereses",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InterestProfile"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/index/content": {
+      "post": {
+        "tags": [
+          "index"
+        ],
+        "operationId": "indexContent",
+        "summary": "Indexar nuevo contenido",
+        "description": "Incorpora contenido nuevo al índice de búsqueda y recomendación. Invocado por el event handler interno que consume eventos de Catálogo. Requiere autenticación de sistema (rol: system).",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IndexContentRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Contenido indexado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IndexOperationResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/index/content/{contentId}": {
+      "put": {
+        "tags": [
+          "index"
+        ],
+        "operationId": "updateIndexedContent",
+        "summary": "Actualizar contenido en el índice",
+        "description": "Actualiza la información de un contenido ya indexado cuando cambia su metadata o visibilidad. Invocado por el event handler interno. Requiere autenticación de sistema (rol: system).",
+        "parameters": [
+          {
+            "name": "contentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateIndexRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Índice actualizado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IndexOperationResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "index"
+        ],
+        "operationId": "removeFromIndex",
+        "summary": "Remover contenido del índice",
+        "description": "Elimina un contenido del índice cuando es restringido o eliminado en Catálogo. Invocado por el event handler interno. Requiere autenticación de sistema (rol: system).",
+        "parameters": [
+          {
+            "name": "contentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Contenido removido del índice"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "Token JWT obtenido del servicio de autenticación. Incluir en cabecera: Authorization: Bearer <token>"
+      }
+    },
+    "schemas": {
+      "VideoRef": {
+        "type": "object",
+        "description": "Referencia ligera a un video. No duplica la metadata completa de Catálogo.",
+        "required": [
+          "contentId",
+          "title",
+          "channelId",
+          "channelName",
+          "thumbnailUrl",
+          "publishedAt"
+        ],
+        "properties": {
+          "contentId": {
+            "type": "string",
+            "description": "ID del contenido en Catálogo"
+          },
+          "title": {
+            "type": "string"
+          },
+          "channelId": {
+            "type": "string"
+          },
+          "channelName": {
+            "type": "string"
+          },
+          "thumbnailUrl": {
+            "type": "string",
+            "format": "uri"
+          },
+          "durationSeconds": {
+            "type": "integer",
+            "nullable": true
+          },
+          "publishedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "viewCount": {
+            "type": "integer",
+            "nullable": true
+          }
+        }
+      },
+      "ChannelRef": {
+        "type": "object",
+        "description": "Referencia ligera a un canal.",
+        "required": [
+          "channelId",
+          "name"
+        ],
+        "properties": {
+          "channelId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "avatarUrl": {
+            "type": "string",
+            "format": "uri",
+            "nullable": true
+          },
+          "subscriberCount": {
+            "type": "integer",
+            "nullable": true
+          },
+          "verifiedBadge": {
+            "type": "boolean",
+            "default": false
+          }
+        }
+      },
+      "SearchResultItem": {
+        "type": "object",
+        "required": [
+          "type",
+          "score"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "video",
+              "channel"
+            ]
+          },
+          "videoRef": {
+            "$ref": "#/components/schemas/VideoRef",
+            "nullable": true
+          },
+          "channelRef": {
+            "$ref": "#/components/schemas/ChannelRef",
+            "nullable": true
+          },
+          "score": {
+            "type": "number",
+            "format": "float",
+            "minimum": 0,
+            "maximum": 1
+          }
+        }
+      },
+      "PaginationMeta": {
+        "type": "object",
+        "required": [
+          "page",
+          "pageSize",
+          "totalPages"
+        ],
+        "properties": {
+          "page": {
+            "type": "integer"
+          },
+          "pageSize": {
+            "type": "integer"
+          },
+          "totalPages": {
+            "type": "integer"
+          }
+        }
+      },
+      "SearchResultPage": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/PaginationMeta"
+          },
+          {
+            "type": "object",
+            "required": [
+              "query",
+              "totalResults",
+              "items"
+            ],
+            "properties": {
+              "query": {
+                "type": "string"
+              },
+              "totalResults": {
+                "type": "integer"
+              },
+              "items": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/SearchResultItem"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "SearchSuggestionsResponse": {
+        "type": "object",
+        "required": [
+          "query",
+          "suggestions"
+        ],
+        "properties": {
+          "query": {
+            "type": "string"
+          },
+          "suggestions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 15
+          }
+        }
+      },
+      "RecommendationReason": {
+        "type": "object",
+        "description": "Razón por la que se recomienda este ítem al usuario.",
+        "required": [
+          "code"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "enum": [
+              "WATCHED_SIMILAR",
+              "SUBSCRIBED_CHANNEL",
+              "TRENDING_IN_REGION",
+              "POPULAR_IN_CATEGORY",
+              "NEW_FROM_FOLLOWED_CHANNEL",
+              "PERSONALIZED_ML",
+              "ANONYMOUS_POPULAR"
+            ]
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "FeedItem": {
+        "type": "object",
+        "required": [
+          "feedItemId",
+          "contentId",
+          "contentType",
+          "title",
+          "channelId",
+          "channelName",
+          "thumbnailUrl",
+          "publishedAt",
+          "rankScore"
+        ],
+        "properties": {
+          "feedItemId": {
+            "type": "string"
+          },
+          "contentId": {
+            "type": "string"
+          },
+          "contentType": {
+            "type": "string",
+            "enum": [
+              "video",
+              "community_post"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "channelId": {
+            "type": "string"
+          },
+          "channelName": {
+            "type": "string"
+          },
+          "thumbnailUrl": {
+            "type": "string",
+            "format": "uri"
+          },
+          "durationSeconds": {
+            "type": "integer",
+            "nullable": true
+          },
+          "publishedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "rankScore": {
+            "type": "number",
+            "format": "float"
+          },
+          "recommendationReason": {
+            "$ref": "#/components/schemas/RecommendationReason",
+            "nullable": true
+          }
+        }
+      },
+      "FeedPage": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/PaginationMeta"
+          },
+          {
+            "type": "object",
+            "required": [
+              "personalized",
+              "items"
+            ],
+            "properties": {
+              "personalized": {
+                "type": "boolean"
+              },
+              "items": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/FeedItem"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "RelatedContentItem": {
+        "type": "object",
+        "required": [
+          "contentId",
+          "title",
+          "channelId",
+          "channelName",
+          "thumbnailUrl",
+          "publishedAt",
+          "similarityScore"
+        ],
+        "properties": {
+          "contentId": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "channelId": {
+            "type": "string"
+          },
+          "channelName": {
+            "type": "string"
+          },
+          "thumbnailUrl": {
+            "type": "string",
+            "format": "uri"
+          },
+          "durationSeconds": {
+            "type": "integer",
+            "nullable": true
+          },
+          "publishedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "similarityScore": {
+            "type": "number",
+            "format": "float",
+            "minimum": 0,
+            "maximum": 1
+          }
+        }
+      },
+      "RelatedContentResponse": {
+        "type": "object",
+        "required": [
+          "sourceContentId",
+          "items"
+        ],
+        "properties": {
+          "sourceContentId": {
+            "type": "string"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RelatedContentItem"
+            }
+          }
+        }
+      },
+      "TrendingItem": {
+        "type": "object",
+        "required": [
+          "rank",
+          "contentId",
+          "title",
+          "channelId",
+          "channelName",
+          "thumbnailUrl",
+          "trendingScore",
+          "publishedAt"
+        ],
+        "properties": {
+          "rank": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "contentId": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "channelId": {
+            "type": "string"
+          },
+          "channelName": {
+            "type": "string"
+          },
+          "thumbnailUrl": {
+            "type": "string",
+            "format": "uri"
+          },
+          "durationSeconds": {
+            "type": "integer",
+            "nullable": true
+          },
+          "trendingScore": {
+            "type": "number",
+            "format": "float"
+          },
+          "publishedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "TrendingResponse": {
+        "type": "object",
+        "required": [
+          "generatedAt",
+          "items"
+        ],
+        "properties": {
+          "regionCode": {
+            "type": "string",
+            "nullable": true
+          },
+          "categoryId": {
+            "type": "string",
+            "nullable": true
+          },
+          "generatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TrendingItem"
+            }
+          }
+        }
+      },
+      "Category": {
+        "type": "object",
+        "required": [
+          "categoryId",
+          "name"
+        ],
+        "properties": {
+          "categoryId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "iconUrl": {
+            "type": "string",
+            "format": "uri",
+            "nullable": true
+          }
+        }
+      },
+      "CategoriesResponse": {
+        "type": "object",
+        "required": [
+          "categories"
+        ],
+        "properties": {
+          "categories": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Category"
+            }
+          }
+        }
+      },
+      "CategoryContentItem": {
+        "type": "object",
+        "required": [
+          "contentId",
+          "title",
+          "channelId",
+          "channelName",
+          "thumbnailUrl",
+          "publishedAt"
+        ],
+        "properties": {
+          "contentId": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "channelId": {
+            "type": "string"
+          },
+          "channelName": {
+            "type": "string"
+          },
+          "thumbnailUrl": {
+            "type": "string",
+            "format": "uri"
+          },
+          "durationSeconds": {
+            "type": "integer",
+            "nullable": true
+          },
+          "publishedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "viewCount": {
+            "type": "integer",
+            "nullable": true
+          }
+        }
+      },
+      "CategoryContentPage": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/PaginationMeta"
+          },
+          {
+            "type": "object",
+            "required": [
+              "categoryId",
+              "items"
+            ],
+            "properties": {
+              "categoryId": {
+                "type": "string"
+              },
+              "items": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/CategoryContentItem"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "ImpressionSignal": {
+        "type": "object",
+        "required": [
+          "contentId",
+          "context",
+          "occurredAt"
+        ],
+        "properties": {
+          "contentId": {
+            "type": "string"
+          },
+          "feedItemId": {
+            "type": "string",
+            "nullable": true
+          },
+          "sessionId": {
+            "type": "string",
+            "nullable": true
+          },
+          "userId": {
+            "type": "string",
+            "nullable": true
+          },
+          "context": {
+            "type": "string",
+            "enum": [
+              "home_feed",
+              "search_results",
+              "related_panel",
+              "trending_page",
+              "category_page"
+            ]
+          },
+          "position": {
+            "type": "integer",
+            "description": "Posición del ítem en la lista (base 0)",
+            "nullable": true
+          },
+          "occurredAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ClickSignal": {
+        "type": "object",
+        "required": [
+          "contentId",
+          "context",
+          "occurredAt"
+        ],
+        "properties": {
+          "contentId": {
+            "type": "string"
+          },
+          "feedItemId": {
+            "type": "string",
+            "nullable": true
+          },
+          "sessionId": {
+            "type": "string",
+            "nullable": true
+          },
+          "userId": {
+            "type": "string",
+            "nullable": true
+          },
+          "context": {
+            "type": "string",
+            "enum": [
+              "home_feed",
+              "search_results",
+              "related_panel",
+              "trending_page",
+              "category_page"
+            ]
+          },
+          "position": {
+            "type": "integer",
+            "nullable": true
+          },
+          "occurredAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "WatchTimeSignal": {
+        "type": "object",
+        "required": [
+          "contentId",
+          "watchedSeconds",
+          "totalDurationSeconds",
+          "completionRate",
+          "occurredAt"
+        ],
+        "properties": {
+          "contentId": {
+            "type": "string"
+          },
+          "userId": {
+            "type": "string",
+            "nullable": true
+          },
+          "sessionId": {
+            "type": "string",
+            "nullable": true
+          },
+          "watchedSeconds": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "totalDurationSeconds": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "completionRate": {
+            "type": "number",
+            "format": "float",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "occurredAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "CategoryWeight": {
+        "type": "object",
+        "required": [
+          "categoryId",
+          "name",
+          "weight"
+        ],
+        "properties": {
+          "categoryId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "weight": {
+            "type": "number",
+            "format": "float",
+            "minimum": 0,
+            "maximum": 1
+          }
+        }
+      },
+      "DurationRange": {
+        "type": "object",
+        "properties": {
+          "minSeconds": {
+            "type": "integer"
+          },
+          "maxSeconds": {
+            "type": "integer"
+          }
+        }
+      },
+      "InterestProfile": {
+        "type": "object",
+        "required": [
+          "userId",
+          "updatedAt",
+          "topCategories",
+          "topTopics"
+        ],
+        "properties": {
+          "userId": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "topCategories": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CategoryWeight"
+            }
+          },
+          "topTopics": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "preferredDurationRange": {
+            "$ref": "#/components/schemas/DurationRange",
+            "nullable": true
+          }
+        }
+      },
+      "IndexContentRequest": {
+        "type": "object",
+        "required": [
+          "contentId",
+          "channelId",
+          "title",
+          "visibility",
+          "publishedAt"
+        ],
+        "properties": {
+          "contentId": {
+            "type": "string"
+          },
+          "channelId": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          },
+          "categoryId": {
+            "type": "string",
+            "nullable": true
+          },
+          "durationSeconds": {
+            "type": "integer",
+            "nullable": true
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "unlisted",
+              "private",
+              "restricted"
+            ]
+          },
+          "publishedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "language": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "UpdateIndexRequest": {
+        "type": "object",
+        "description": "Campos actualizables en el índice. Todos opcionales (PATCH semántico).",
+        "properties": {
+          "title": {
+            "type": "string",
+            "nullable": true
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          },
+          "categoryId": {
+            "type": "string",
+            "nullable": true
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "unlisted",
+              "private",
+              "restricted"
+            ],
+            "nullable": true
+          }
+        }
+      },
+      "IndexOperationResponse": {
+        "type": "object",
+        "required": [
+          "contentId",
+          "status"
+        ],
+        "properties": {
+          "contentId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "indexed",
+              "updated",
+              "removed"
+            ]
+          },
+          "indexedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "Código de error interno"
+          },
+          "message": {
+            "type": "string",
+            "description": "Descripción legible del error"
+          },
+          "details": {
+            "type": "array",
+            "nullable": true,
+            "items": {
+              "type": "object",
+              "properties": {
+                "field": {
+                  "type": "string"
+                },
+                "issue": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "responses": {
+      "BadRequest": {
+        "description": "Solicitud inválida",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      },
+      "Unauthorized": {
+        "description": "Token JWT ausente o inválido",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      },
+      "Forbidden": {
+        "description": "Sin permiso para acceder al recurso",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      },
+      "NotFound": {
+        "description": "Recurso no encontrado",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      },
+      "Conflict": {
+        "description": "Conflicto: el recurso ya existe",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      },
+      "InternalError": {
+        "description": "Error interno del servidor",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,2823 @@
+{
+  "openapi": "3.0.4",
+  "info": {
+    "title": "Audiencia, Comunidad y Engagement API",
+    "description": "API para gestionar la relación social entre usuarios, creadores y contenido: suscripciones, reacciones, comentarios, notificaciones, historial personal y posts de comunidad. Bounded Context independiente dentro de la plataforma de video.\n\n### Eventos que consume\n* `catalog.content.published` **(Catálogo)**: Gatilla notificaciones a los suscriptores del canal.\n* `catalog.content.restricted` **(Catálogo)**: Oculta interacciones (comentarios/reacciones) asociadas a contenido no visible.\n\n### Eventos que emite\n* `audience.subscription.created` / `deleted`: Emitido cuando un usuario sigue o deja de seguir un canal.\n* `audience.reaction.registered`: Emitido cuando se deja un like o dislike.\n* `audience.comment.published` / `deleted`: Emitido al interactuar en los hilos de comentarios.\n* `audience.engagement.added`: Evento genérico consumido por Descubrimiento para recalcular intereses.\n\n### Restricciones de diseño\n* El concepto de 'Suscripción' modela una **relación social** de seguimiento, no una suscripción de pago (eso pertenece a Monetización).\n* Se valida la existencia de contenido/canal mediante identificadores compartidos, pero **no duplica** su metadata editorial.",
+    "contact": {
+      "name": "Equipo Audiencia",
+      "email": "audience@platform.com"
+    }
+  },
+  "servers": [
+    {
+      "url": "https://api.platform.com/audience/v1",
+      "description": "Producción"
+    },
+    {
+      "url": "https://staging-api.platform.com/audience/v1",
+      "description": "Staging"
+    }
+  ],
+  "tags": [
+    {
+      "name": "subscriptions",
+      "description": "Suscripciones a canales (RF-A1)"
+    },
+    {
+      "name": "reactions",
+      "description": "Likes, dislikes y reacciones a contenido (RF-A2)"
+    },
+    {
+      "name": "comments",
+      "description": "Comentarios y threads en contenido (RF-A3)"
+    },
+    {
+      "name": "notifications",
+      "description": "Notificaciones y preferencias (RF-A4)"
+    },
+    {
+      "name": "history",
+      "description": "Historial de visualización y lista 'ver después' (RF-A5)"
+    },
+    {
+      "name": "community",
+      "description": "Posts de comunidad del canal (RF-A6)"
+    }
+  ],
+  "security": [
+    {
+      "BearerAuth": []
+    }
+  ],
+  "paths": {
+    "/subscriptions": {
+      "post": {
+        "tags": [
+          "subscriptions"
+        ],
+        "operationId": "subscribeToChannel",
+        "summary": "Suscribirse a un canal",
+        "description": "El usuario autenticado sigue un canal. Emite el evento 'UsuarioSuscrito'.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubscribeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Suscripción creada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubscriptionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/subscriptions/{channelId}": {
+      "delete": {
+        "tags": [
+          "subscriptions"
+        ],
+        "operationId": "unsubscribeFromChannel",
+        "summary": "Dejar de seguir un canal",
+        "description": "El usuario autenticado cancela su suscripción a un canal. Emite el evento 'UsuarioDesuscrito'.",
+        "parameters": [
+          {
+            "name": "channelId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Suscripción eliminada"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "subscriptions"
+        ],
+        "operationId": "getSubscriptionStatus",
+        "summary": "Consultar estado de suscripción a un canal",
+        "description": "Verifica si el usuario autenticado está suscrito al canal indicado.",
+        "parameters": [
+          {
+            "name": "channelId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Estado de suscripción",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubscriptionStatusResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/users/{userId}/subscriptions": {
+      "get": {
+        "tags": [
+          "subscriptions"
+        ],
+        "operationId": "listUserSubscriptions",
+        "summary": "Listar canales seguidos por un usuario",
+        "description": "Devuelve la lista paginada de canales a los que está suscrito el usuario.",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            }
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50,
+              "default": 20
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lista de suscripciones",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubscriptionListPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/channels/{channelId}/subscriber-count": {
+      "get": {
+        "tags": [
+          "subscriptions"
+        ],
+        "operationId": "getChannelSubscriberCount",
+        "summary": "Obtener conteo de suscriptores de un canal",
+        "description": "Expone el total de suscriptores de un canal.",
+        "security": [
+          {}
+        ],
+        "parameters": [
+          {
+            "name": "channelId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Conteo de suscriptores",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubscriberCountResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/content/{contentId}/reactions": {
+      "get": {
+        "tags": [
+          "reactions"
+        ],
+        "operationId": "getContentReactions",
+        "summary": "Obtener totales de reacciones de un contenido",
+        "description": "Devuelve los totales agregados de reacciones (like/dislike) de un contenido.",
+        "security": [
+          {}
+        ],
+        "parameters": [
+          {
+            "name": "contentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Totales de reacciones",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReactionSummaryResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "reactions"
+        ],
+        "operationId": "setReaction",
+        "summary": "Registrar o cambiar reacción a un contenido",
+        "description": "El usuario autenticado expresa una reacción (like o dislike). Si ya existía una reacción previa, la reemplaza. Emite el evento 'ReaccionRegistrada'.",
+        "parameters": [
+          {
+            "name": "contentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetReactionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Reacción registrada o actualizada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReactionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "reactions"
+        ],
+        "operationId": "removeReaction",
+        "summary": "Eliminar reacción propia a un contenido",
+        "description": "El usuario autenticado elimina su reacción a un contenido.",
+        "parameters": [
+          {
+            "name": "contentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Reacción eliminada"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/content/{contentId}/comments": {
+      "get": {
+        "tags": [
+          "comments"
+        ],
+        "operationId": "listComments",
+        "summary": "Listar comentarios de un contenido",
+        "description": "Devuelve los comentarios de nivel superior de un contenido con paginación y orden configurable.",
+        "security": [
+          {}
+        ],
+        "parameters": [
+          {
+            "name": "contentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "top",
+                "recent"
+              ],
+              "default": "top"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            }
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50,
+              "default": 20
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lista de comentarios",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommentPage"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "comments"
+        ],
+        "operationId": "postComment",
+        "summary": "Publicar un comentario",
+        "description": "El usuario autenticado publica un comentario en un contenido. Emite el evento 'ComentarioPublicado'.",
+        "parameters": [
+          {
+            "name": "contentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PostCommentRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Comentario publicado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Comment"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/comments/{commentId}/replies": {
+      "get": {
+        "tags": [
+          "comments"
+        ],
+        "operationId": "listReplies",
+        "summary": "Listar respuestas a un comentario",
+        "description": "Devuelve las respuestas (hijos) de un comentario con paginación.",
+        "security": [
+          {}
+        ],
+        "parameters": [
+          {
+            "name": "commentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            }
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50,
+              "default": 20
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lista de respuestas",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReplyPage"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/comments/{commentId}": {
+      "patch": {
+        "tags": [
+          "comments"
+        ],
+        "operationId": "editComment",
+        "summary": "Editar un comentario propio",
+        "description": "El autor puede editar el texto de su comentario.",
+        "parameters": [
+          {
+            "name": "commentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EditCommentRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Comentario editado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Comment"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "comments"
+        ],
+        "operationId": "deleteComment",
+        "summary": "Eliminar un comentario",
+        "description": "El autor puede eliminar su propio comentario. Emite el evento 'ComentarioEliminado'.",
+        "parameters": [
+          {
+            "name": "commentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Comentario eliminado"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/comments/{commentId}/pin": {
+      "put": {
+        "tags": [
+          "comments"
+        ],
+        "operationId": "pinComment",
+        "summary": "Fijar un comentario (solo el creador del canal)",
+        "description": "El creador del canal puede fijar un comentario destacado en su contenido.",
+        "parameters": [
+          {
+            "name": "commentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Comentario fijado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Comment"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "comments"
+        ],
+        "operationId": "unpinComment",
+        "summary": "Desfijar un comentario",
+        "description": "El creador del canal puede quitar el pin de un comentario.",
+        "parameters": [
+          {
+            "name": "commentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Pin eliminado"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/comments/{commentId}/reports": {
+      "post": {
+        "tags": [
+          "comments"
+        ],
+        "operationId": "reportComment",
+        "summary": "Reportar un comentario inapropiado",
+        "description": "El usuario autenticado reporta un comentario como inapropiado.",
+        "parameters": [
+          {
+            "name": "commentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReportCommentRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Reporte creado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/users/{userId}/notifications": {
+      "get": {
+        "tags": [
+          "notifications"
+        ],
+        "operationId": "listNotifications",
+        "summary": "Listar notificaciones del usuario",
+        "description": "Devuelve la lista paginada de notificaciones del usuario autenticado.",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "unreadOnly",
+            "in": "query",
+            "description": "Filtrar solo notificaciones no leídas",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            }
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50,
+              "default": 20
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lista de notificaciones",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/users/{userId}/notifications/read": {
+      "post": {
+        "tags": [
+          "notifications"
+        ],
+        "operationId": "markNotificationsAsRead",
+        "summary": "Marcar notificaciones como leídas",
+        "description": "Marca una o todas las notificaciones del usuario como leídas.",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MarkReadRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Notificaciones marcadas como leídas",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarkReadResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/users/{userId}/notification-preferences": {
+      "get": {
+        "tags": [
+          "notifications"
+        ],
+        "operationId": "getNotificationPreferences",
+        "summary": "Obtener preferencias de notificación",
+        "description": "Devuelve la configuración de preferencias de notificación del usuario.",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Preferencias de notificación",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationPreferences"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "notifications"
+        ],
+        "operationId": "updateNotificationPreferences",
+        "summary": "Actualizar preferencias de notificación",
+        "description": "El usuario configura qué tipos de notificaciones desea recibir.",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotificationPreferences"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Preferencias actualizadas",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationPreferences"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/users/{userId}/history": {
+      "get": {
+        "tags": [
+          "history"
+        ],
+        "operationId": "getWatchHistory",
+        "summary": "Obtener historial de visualización",
+        "description": "Devuelve el historial paginado de contenido visto por el usuario.",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            }
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50,
+              "default": 20
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Historial de visualización",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WatchHistoryPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "history"
+        ],
+        "operationId": "clearWatchHistory",
+        "summary": "Borrar historial de visualización",
+        "description": "El usuario elimina todo su historial de visualización por privacidad.",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Historial eliminado"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "history"
+        ],
+        "operationId": "recordWatchHistoryEntry",
+        "summary": "Registrar entrada en historial de visualización",
+        "description": "Registra que el usuario vio un contenido. Permite capturar progreso de visualización para historial personal. Emite señal de engagement hacia Descubrimiento.",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecordHistoryRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Entrada de historial registrada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WatchHistoryItem"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/users/{userId}/history/{historyEntryId}": {
+      "delete": {
+        "tags": [
+          "history"
+        ],
+        "operationId": "removeHistoryEntry",
+        "summary": "Eliminar una entrada del historial",
+        "description": "El usuario elimina un ítem específico de su historial.",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "historyEntryId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Entrada eliminada"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/users/{userId}/watch-later": {
+      "get": {
+        "tags": [
+          "history"
+        ],
+        "operationId": "getWatchLater",
+        "summary": "Obtener lista 'Ver después'",
+        "description": "Devuelve la lista paginada de contenido guardado para ver después.",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            }
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50,
+              "default": 20
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lista Ver después",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WatchLaterPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "history"
+        ],
+        "operationId": "addToWatchLater",
+        "summary": "Guardar contenido para ver después",
+        "description": "El usuario agrega un contenido a su lista 'Ver después'.",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddToWatchLaterRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Contenido agregado a Ver después",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WatchLaterItem"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/users/{userId}/watch-later/{watchLaterId}": {
+      "delete": {
+        "tags": [
+          "history"
+        ],
+        "operationId": "removeFromWatchLater",
+        "summary": "Eliminar un ítem de 'Ver después'",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "watchLaterId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Ítem eliminado"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/channels/{channelId}/community-posts": {
+      "get": {
+        "tags": [
+          "community"
+        ],
+        "operationId": "listCommunityPosts",
+        "summary": "Listar posts de comunidad de un canal",
+        "description": "Devuelve los posts de comunidad publicados por el creador del canal.",
+        "security": [
+          {}
+        ],
+        "parameters": [
+          {
+            "name": "channelId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            }
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 30,
+              "default": 10
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lista de posts de comunidad",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommunityPostPage"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "community"
+        ],
+        "operationId": "createCommunityPost",
+        "summary": "Publicar un post de comunidad",
+        "description": "El creador del canal publica un post (texto, imagen o encuesta).",
+        "parameters": [
+          {
+            "name": "channelId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCommunityPostRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Post de comunidad creado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommunityPost"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/community-posts/{postId}/reactions": {
+      "put": {
+        "tags": [
+          "community"
+        ],
+        "operationId": "reactToCommunityPost",
+        "summary": "Reaccionar a un post de comunidad",
+        "description": "El usuario autenticado registra una reacción (like) en un post de comunidad.",
+        "parameters": [
+          {
+            "name": "postId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetCommunityPostReactionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Reacción registrada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommunityPostReactionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/community-posts/{postId}/comments": {
+      "get": {
+        "tags": [
+          "community"
+        ],
+        "operationId": "listCommunityPostComments",
+        "summary": "Listar comentarios de un post de comunidad",
+        "security": [
+          {}
+        ],
+        "parameters": [
+          {
+            "name": "postId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            }
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50,
+              "default": 20
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Comentarios del post",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommunityPostCommentPage"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "community"
+        ],
+        "operationId": "commentOnCommunityPost",
+        "summary": "Comentar en un post de comunidad",
+        "parameters": [
+          {
+            "name": "postId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PostCommunityCommentRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Comentario publicado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommunityPostComment"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "Token JWT obtenido del servicio de autenticación. Incluir en cabecera: Authorization: Bearer <token>"
+      }
+    },
+    "schemas": {
+      "PaginationMeta": {
+        "type": "object",
+        "required": [
+          "page",
+          "pageSize",
+          "totalPages",
+          "totalItems"
+        ],
+        "properties": {
+          "page": {
+            "type": "integer"
+          },
+          "pageSize": {
+            "type": "integer"
+          },
+          "totalPages": {
+            "type": "integer"
+          },
+          "totalItems": {
+            "type": "integer"
+          }
+        }
+      },
+      "SubscribeRequest": {
+        "type": "object",
+        "required": [
+          "channelId"
+        ],
+        "properties": {
+          "channelId": {
+            "type": "string"
+          }
+        }
+      },
+      "SubscriptionResponse": {
+        "type": "object",
+        "required": [
+          "subscriptionId",
+          "userId",
+          "channelId",
+          "subscribedAt"
+        ],
+        "properties": {
+          "subscriptionId": {
+            "type": "string"
+          },
+          "userId": {
+            "type": "string"
+          },
+          "channelId": {
+            "type": "string"
+          },
+          "subscribedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "notificationsEnabled": {
+            "type": "boolean",
+            "default": true
+          }
+        }
+      },
+      "SubscriptionStatusResponse": {
+        "type": "object",
+        "required": [
+          "channelId",
+          "isSubscribed"
+        ],
+        "properties": {
+          "channelId": {
+            "type": "string"
+          },
+          "isSubscribed": {
+            "type": "boolean"
+          },
+          "subscribedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "notificationsEnabled": {
+            "type": "boolean",
+            "nullable": true
+          }
+        }
+      },
+      "SubscriptionListItem": {
+        "type": "object",
+        "required": [
+          "subscriptionId",
+          "channelId",
+          "channelName",
+          "subscribedAt"
+        ],
+        "properties": {
+          "subscriptionId": {
+            "type": "string"
+          },
+          "channelId": {
+            "type": "string"
+          },
+          "channelName": {
+            "type": "string"
+          },
+          "channelAvatarUrl": {
+            "type": "string",
+            "format": "uri",
+            "nullable": true
+          },
+          "subscriberCount": {
+            "type": "integer",
+            "nullable": true
+          },
+          "subscribedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "notificationsEnabled": {
+            "type": "boolean"
+          }
+        }
+      },
+      "SubscriptionListPage": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/PaginationMeta"
+          },
+          {
+            "type": "object",
+            "required": [
+              "userId",
+              "items"
+            ],
+            "properties": {
+              "userId": {
+                "type": "string"
+              },
+              "items": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/SubscriptionListItem"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "SubscriberCountResponse": {
+        "type": "object",
+        "required": [
+          "channelId",
+          "subscriberCount",
+          "updatedAt"
+        ],
+        "properties": {
+          "channelId": {
+            "type": "string"
+          },
+          "subscriberCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "SetReactionRequest": {
+        "type": "object",
+        "required": [
+          "reactionType"
+        ],
+        "properties": {
+          "reactionType": {
+            "type": "string",
+            "enum": [
+              "like",
+              "dislike"
+            ]
+          }
+        }
+      },
+      "ReactionResponse": {
+        "type": "object",
+        "required": [
+          "contentId",
+          "userId",
+          "reactionType",
+          "reactedAt"
+        ],
+        "properties": {
+          "contentId": {
+            "type": "string"
+          },
+          "userId": {
+            "type": "string"
+          },
+          "reactionType": {
+            "type": "string",
+            "enum": [
+              "like",
+              "dislike"
+            ]
+          },
+          "reactedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ReactionSummaryResponse": {
+        "type": "object",
+        "required": [
+          "contentId",
+          "likes",
+          "dislikes"
+        ],
+        "properties": {
+          "contentId": {
+            "type": "string"
+          },
+          "likes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "dislikes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "userReaction": {
+            "type": "string",
+            "enum": [
+              "like",
+              "dislike"
+            ],
+            "nullable": true,
+            "description": "Reacción del usuario autenticado (null si no está autenticado o no reaccionó)"
+          }
+        }
+      },
+      "Comment": {
+        "type": "object",
+        "required": [
+          "commentId",
+          "contentId",
+          "authorId",
+          "authorName",
+          "text",
+          "likeCount",
+          "replyCount",
+          "isPinned",
+          "isEdited",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "commentId": {
+            "type": "string"
+          },
+          "contentId": {
+            "type": "string"
+          },
+          "authorId": {
+            "type": "string"
+          },
+          "authorName": {
+            "type": "string"
+          },
+          "authorAvatarUrl": {
+            "type": "string",
+            "format": "uri",
+            "nullable": true
+          },
+          "text": {
+            "type": "string",
+            "maxLength": 10000
+          },
+          "likeCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "replyCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "isPinned": {
+            "type": "boolean"
+          },
+          "isEdited": {
+            "type": "boolean"
+          },
+          "parentCommentId": {
+            "type": "string",
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "CommentPage": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/PaginationMeta"
+          },
+          {
+            "type": "object",
+            "required": [
+              "contentId",
+              "items"
+            ],
+            "properties": {
+              "contentId": {
+                "type": "string"
+              },
+              "pinnedComment": {
+                "$ref": "#/components/schemas/Comment",
+                "nullable": true
+              },
+              "items": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/Comment"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "ReplyPage": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/PaginationMeta"
+          },
+          {
+            "type": "object",
+            "required": [
+              "parentCommentId",
+              "items"
+            ],
+            "properties": {
+              "parentCommentId": {
+                "type": "string"
+              },
+              "items": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/Comment"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "PostCommentRequest": {
+        "type": "object",
+        "required": [
+          "text"
+        ],
+        "properties": {
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 10000
+          },
+          "parentCommentId": {
+            "type": "string",
+            "nullable": true,
+            "description": "ID del comentario padre si es una respuesta"
+          }
+        }
+      },
+      "EditCommentRequest": {
+        "type": "object",
+        "required": [
+          "text"
+        ],
+        "properties": {
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 10000
+          }
+        }
+      },
+      "ReportCommentRequest": {
+        "type": "object",
+        "required": [
+          "reason"
+        ],
+        "properties": {
+          "reason": {
+            "type": "string",
+            "enum": [
+              "SPAM",
+              "HATE_SPEECH",
+              "HARASSMENT",
+              "MISLEADING",
+              "SEXUAL_CONTENT",
+              "VIOLENCE",
+              "OTHER"
+            ]
+          },
+          "details": {
+            "type": "string",
+            "maxLength": 500,
+            "nullable": true
+          }
+        }
+      },
+      "ReportResponse": {
+        "type": "object",
+        "required": [
+          "reportId",
+          "commentId",
+          "reportedBy",
+          "reason",
+          "createdAt"
+        ],
+        "properties": {
+          "reportId": {
+            "type": "string"
+          },
+          "commentId": {
+            "type": "string"
+          },
+          "reportedBy": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "Notification": {
+        "type": "object",
+        "required": [
+          "notificationId",
+          "type",
+          "title",
+          "isRead",
+          "createdAt"
+        ],
+        "properties": {
+          "notificationId": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "NEW_VIDEO",
+              "REPLY_TO_COMMENT",
+              "LIKE_ON_COMMENT",
+              "COMMUNITY_POST",
+              "CHANNEL_MILESTONE"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string",
+            "nullable": true
+          },
+          "contentId": {
+            "type": "string",
+            "nullable": true
+          },
+          "channelId": {
+            "type": "string",
+            "nullable": true
+          },
+          "commentId": {
+            "type": "string",
+            "nullable": true
+          },
+          "isRead": {
+            "type": "boolean"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "NotificationPage": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/PaginationMeta"
+          },
+          {
+            "type": "object",
+            "required": [
+              "userId",
+              "unreadCount",
+              "items"
+            ],
+            "properties": {
+              "userId": {
+                "type": "string"
+              },
+              "unreadCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "items": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/Notification"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "MarkReadRequest": {
+        "type": "object",
+        "properties": {
+          "notificationIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true,
+            "description": "IDs de notificaciones a marcar. Ignorado si markAll es true."
+          },
+          "markAll": {
+            "type": "boolean",
+            "default": false,
+            "description": "Si es true, marca todas las notificaciones no leídas."
+          }
+        }
+      },
+      "MarkReadResponse": {
+        "type": "object",
+        "required": [
+          "markedCount"
+        ],
+        "properties": {
+          "markedCount": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "NotificationPreferences": {
+        "type": "object",
+        "required": [
+          "userId"
+        ],
+        "properties": {
+          "userId": {
+            "type": "string"
+          },
+          "newVideoFromSubscribed": {
+            "type": "boolean",
+            "default": true
+          },
+          "replyToComment": {
+            "type": "boolean",
+            "default": true
+          },
+          "likeOnComment": {
+            "type": "boolean",
+            "default": false
+          },
+          "communityPost": {
+            "type": "boolean",
+            "default": true
+          },
+          "channelMilestone": {
+            "type": "boolean",
+            "default": false
+          }
+        }
+      },
+      "WatchHistoryItem": {
+        "type": "object",
+        "required": [
+          "historyEntryId",
+          "contentId",
+          "watchedAt"
+        ],
+        "properties": {
+          "historyEntryId": {
+            "type": "string"
+          },
+          "contentId": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "channelId": {
+            "type": "string"
+          },
+          "channelName": {
+            "type": "string"
+          },
+          "thumbnailUrl": {
+            "type": "string",
+            "format": "uri",
+            "nullable": true
+          },
+          "durationSeconds": {
+            "type": "integer",
+            "nullable": true
+          },
+          "watchedSeconds": {
+            "type": "integer"
+          },
+          "completionRate": {
+            "type": "number",
+            "format": "float",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "watchedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "WatchHistoryPage": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/PaginationMeta"
+          },
+          {
+            "type": "object",
+            "required": [
+              "userId",
+              "items"
+            ],
+            "properties": {
+              "userId": {
+                "type": "string"
+              },
+              "items": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/WatchHistoryItem"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "AddToWatchLaterRequest": {
+        "type": "object",
+        "required": [
+          "contentId"
+        ],
+        "properties": {
+          "contentId": {
+            "type": "string"
+          }
+        }
+      },
+      "WatchLaterItem": {
+        "type": "object",
+        "required": [
+          "watchLaterId",
+          "contentId",
+          "addedAt"
+        ],
+        "properties": {
+          "watchLaterId": {
+            "type": "string"
+          },
+          "contentId": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "thumbnailUrl": {
+            "type": "string",
+            "format": "uri",
+            "nullable": true
+          },
+          "durationSeconds": {
+            "type": "integer",
+            "nullable": true
+          },
+          "addedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "WatchLaterPage": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/PaginationMeta"
+          },
+          {
+            "type": "object",
+            "required": [
+              "userId",
+              "items"
+            ],
+            "properties": {
+              "userId": {
+                "type": "string"
+              },
+              "items": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/WatchLaterItem"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "PollOption": {
+        "type": "object",
+        "required": [
+          "text"
+        ],
+        "properties": {
+          "optionId": {
+            "type": "string",
+            "nullable": true
+          },
+          "text": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "voteCount": {
+            "type": "integer",
+            "minimum": 0,
+            "nullable": true
+          }
+        }
+      },
+      "Poll": {
+        "type": "object",
+        "required": [
+          "options"
+        ],
+        "properties": {
+          "options": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PollOption"
+            },
+            "minItems": 2,
+            "maxItems": 5
+          },
+          "durationHours": {
+            "type": "integer",
+            "minimum": 1,
+            "nullable": true
+          },
+          "endsAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "totalVotes": {
+            "type": "integer",
+            "minimum": 0,
+            "nullable": true
+          },
+          "userVotedOptionId": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "CommunityPost": {
+        "type": "object",
+        "required": [
+          "postId",
+          "channelId",
+          "authorId",
+          "postType",
+          "likeCount",
+          "commentCount",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "postId": {
+            "type": "string"
+          },
+          "channelId": {
+            "type": "string"
+          },
+          "authorId": {
+            "type": "string"
+          },
+          "postType": {
+            "type": "string",
+            "enum": [
+              "text",
+              "image",
+              "poll"
+            ]
+          },
+          "text": {
+            "type": "string",
+            "nullable": true
+          },
+          "imageUrl": {
+            "type": "string",
+            "format": "uri",
+            "nullable": true
+          },
+          "poll": {
+            "$ref": "#/components/schemas/Poll",
+            "nullable": true
+          },
+          "likeCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "commentCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "CommunityPostPage": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/PaginationMeta"
+          },
+          {
+            "type": "object",
+            "required": [
+              "channelId",
+              "items"
+            ],
+            "properties": {
+              "channelId": {
+                "type": "string"
+              },
+              "items": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/CommunityPost"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "CreateCommunityPostRequest": {
+        "type": "object",
+        "required": [
+          "postType"
+        ],
+        "properties": {
+          "postType": {
+            "type": "string",
+            "enum": [
+              "text",
+              "image",
+              "poll"
+            ]
+          },
+          "text": {
+            "type": "string",
+            "maxLength": 5000,
+            "nullable": true
+          },
+          "imageUrl": {
+            "type": "string",
+            "format": "uri",
+            "nullable": true
+          },
+          "poll": {
+            "type": "object",
+            "nullable": true,
+            "properties": {
+              "options": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 2,
+                "maxItems": 5
+              },
+              "durationHours": {
+                "type": "integer",
+                "minimum": 1
+              }
+            },
+            "required": [
+              "options"
+            ]
+          }
+        }
+      },
+      "SetCommunityPostReactionRequest": {
+        "type": "object",
+        "required": [
+          "reactionType"
+        ],
+        "properties": {
+          "reactionType": {
+            "type": "string",
+            "enum": [
+              "like"
+            ]
+          }
+        }
+      },
+      "CommunityPostReactionResponse": {
+        "type": "object",
+        "required": [
+          "postId",
+          "userId",
+          "reactionType",
+          "reactedAt"
+        ],
+        "properties": {
+          "postId": {
+            "type": "string"
+          },
+          "userId": {
+            "type": "string"
+          },
+          "reactionType": {
+            "type": "string",
+            "enum": [
+              "like"
+            ]
+          },
+          "reactedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "CommunityPostComment": {
+        "type": "object",
+        "required": [
+          "commentId",
+          "postId",
+          "authorId",
+          "authorName",
+          "text",
+          "likeCount",
+          "createdAt"
+        ],
+        "properties": {
+          "commentId": {
+            "type": "string"
+          },
+          "postId": {
+            "type": "string"
+          },
+          "authorId": {
+            "type": "string"
+          },
+          "authorName": {
+            "type": "string"
+          },
+          "authorAvatarUrl": {
+            "type": "string",
+            "format": "uri",
+            "nullable": true
+          },
+          "text": {
+            "type": "string",
+            "maxLength": 10000
+          },
+          "likeCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "CommunityPostCommentPage": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/PaginationMeta"
+          },
+          {
+            "type": "object",
+            "required": [
+              "postId",
+              "items"
+            ],
+            "properties": {
+              "postId": {
+                "type": "string"
+              },
+              "items": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/CommunityPostComment"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "PostCommunityCommentRequest": {
+        "type": "object",
+        "required": [
+          "text"
+        ],
+        "properties": {
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 10000
+          }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "details": {
+            "type": "array",
+            "nullable": true,
+            "items": {
+              "type": "object",
+              "properties": {
+                "field": {
+                  "type": "string"
+                },
+                "issue": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "RecordHistoryRequest": {
+        "type": "object",
+        "required": [
+          "contentId",
+          "watchedSeconds",
+          "totalDurationSeconds"
+        ],
+        "properties": {
+          "contentId": {
+            "type": "string"
+          },
+          "watchedSeconds": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "totalDurationSeconds": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "completionRate": {
+            "type": "number",
+            "format": "float",
+            "minimum": 0,
+            "maximum": 1
+          }
+        }
+      }
+    },
+    "responses": {
+      "BadRequest": {
+        "description": "Solicitud inválida",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      },
+      "Unauthorized": {
+        "description": "Token JWT ausente o inválido",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      },
+      "Forbidden": {
+        "description": "Sin permiso para realizar la acción",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      },
+      "NotFound": {
+        "description": "Recurso no encontrado",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      },
+      "Conflict": {
+        "description": "Conflicto: el recurso ya existe",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      },
+      "InternalError": {
+        "description": "Error interno del servidor",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      }
+    }
+  }
+}
