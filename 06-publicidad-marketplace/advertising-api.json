@@ -1,0 +1,1846 @@
+{
+  "openapi": "3.0.4",
+  "info": {
+    "title": "API de Publicidad y Marketplace de Anunciantes",
+    "version": "1.1.0",
+    "description": "Bounded context que gestiona el negocio publicitario B2B: anunciantes, facturación, campañas, creativos, targeting, inventario publicitario, entrega de anuncios, medición e ingresos para la plataforma. Cliente principal: el anunciante (no el creador). No paga directamente al creador; ese rol corresponde al contexto de Monetización del ecosistema creador, a quien este contexto informa cuando se confirma una impresión facturable."
+  },
+  "servers": [
+    {
+      "url": "https://api.youtube-clone.local/ads/v1",
+      "description": "Servidor principal de Publicidad"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Anunciantes",
+      "description": "Gestión de cuentas y datos de facturación del anunciante."
+    },
+    {
+      "name": "Campañas",
+      "description": "Creación y control de campañas."
+    },
+    {
+      "name": "Creativos",
+      "description": "Carga, asociación y validación de creativos publicitarios."
+    },
+    {
+      "name": "Targeting e Inventario",
+      "description": "Segmentación, estimación de alcance y elegibilidad del inventario publicitario."
+    },
+    {
+      "name": "Entrega",
+      "description": "Decisión de anuncios e impresiones."
+    },
+    {
+      "name": "Medición y Reportes",
+      "description": "Impresiones, clicks, skips, métricas, facturación e invoices."
+    },
+    {
+      "name": "Integración",
+      "description": "Eventos consumidos desde otros bounded contexts (Catálogo) y suscripción a eventos emitidos por este contexto."
+    }
+  ],
+  "paths": {
+    "/advertisers": {
+      "post": {
+        "tags": [
+          "Anunciantes"
+        ],
+        "summary": "Registrar anunciante",
+        "description": "Permite registrar cuentas de anunciantes. Rol requerido: Anunciante (auto-registro) o Administrador de plataforma.",
+        "operationId": "createAdvertiser",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Advertiser"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Anunciante creado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Advertiser"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/advertisers/{id}": {
+      "get": {
+        "tags": [
+          "Anunciantes"
+        ],
+        "summary": "Consultar anunciante",
+        "description": "Retorna el detalle de una cuenta de anunciante. Rol requerido: el propio Anunciante o Administrador de plataforma.",
+        "operationId": "getAdvertiser",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Anunciante encontrado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Advertiser"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Anunciantes"
+        ],
+        "summary": "Actualizar anunciante",
+        "description": "Actualiza datos generales del anunciante (no incluye facturación). Rol requerido: el propio Anunciante o Administrador de plataforma.",
+        "operationId": "updateAdvertiser",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Advertiser"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Anunciante actualizado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Advertiser"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/advertisers/{id}/billing-profile": {
+      "get": {
+        "tags": [
+          "Anunciantes"
+        ],
+        "summary": "Consultar datos de facturación",
+        "description": "Retorna el perfil de facturación del anunciante. Rol requerido: el propio Anunciante o Administrador de plataforma.",
+        "operationId": "getBillingProfile",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Perfil de facturación",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BillingProfile"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Anunciantes"
+        ],
+        "summary": "Crear o actualizar datos de facturación",
+        "description": "Permite administrar (crear/editar) los datos de facturación del anunciante (RUT/taxId, método de pago). Rol requerido: el propio Anunciante.",
+        "operationId": "upsertBillingProfile",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BillingProfile"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Perfil de facturación guardado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BillingProfile"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/advertisers/{id}/invoices": {
+      "get": {
+        "tags": [
+          "Medición y Reportes"
+        ],
+        "summary": "Listar invoices del anunciante",
+        "description": "Retorna las facturas generadas para el anunciante. Rol requerido: el propio Anunciante o Administrador de plataforma.",
+        "operationId": "listAdvertiserInvoices",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 1
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 20
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lista paginada de invoices",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvoiceListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/invoices/{id}": {
+      "get": {
+        "tags": [
+          "Medición y Reportes"
+        ],
+        "summary": "Consultar invoice",
+        "description": "Retorna el detalle de una factura/invoice. Rol requerido: el propio Anunciante o Administrador de plataforma.",
+        "operationId": "getInvoice",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Invoice encontrado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Invoice"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/campaigns": {
+      "post": {
+        "tags": [
+          "Campañas"
+        ],
+        "summary": "Crear campaña",
+        "description": "Permite crear campañas con objetivo, presupuesto y vigencia. Rol requerido: Anunciante (dueño de la cuenta).",
+        "operationId": "createCampaign",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Campaign"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Campaña creada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Campaign"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Campañas"
+        ],
+        "summary": "Listar campañas",
+        "description": "Retorna lista paginada de campañas de un anunciante. Rol requerido: el propio Anunciante o Administrador de plataforma.",
+        "operationId": "listCampaigns",
+        "parameters": [
+          {
+            "name": "advertiserId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "ACTIVE",
+                "PAUSED",
+                "COMPLETED"
+              ]
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 1
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 20
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lista paginada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CampaignListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/campaigns/{id}": {
+      "get": {
+        "tags": [
+          "Campañas"
+        ],
+        "summary": "Consultar campaña",
+        "description": "Retorna el detalle de una campaña. Rol requerido: el propio Anunciante o Administrador de plataforma.",
+        "operationId": "getCampaign",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Campaña encontrada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Campaign"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/campaigns/{id}/status": {
+      "patch": {
+        "tags": [
+          "Campañas"
+        ],
+        "summary": "Actualizar estado de campaña",
+        "description": "Permite pausar, reanudar y finalizar campañas. El sistema impide que una campaña pase a ACTIVE si el presupuesto disponible es cero. Rol requerido: el propio Anunciante.",
+        "operationId": "updateCampaignStatus",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "ACTIVE",
+                      "PAUSED",
+                      "COMPLETED"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Estado actualizado"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "description": "No se puede activar: presupuesto agotado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/campaigns/{id}/creatives": {
+      "get": {
+        "tags": [
+          "Creativos"
+        ],
+        "summary": "Listar creativos de una campaña",
+        "description": "Retorna los creativos asociados a una campaña. Rol requerido: el propio Anunciante o Administrador de plataforma.",
+        "operationId": "listCampaignCreatives",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 1,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 20,
+              "maximum": 100
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lista de creativos",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Creative"
+                      }
+                    },
+                    "pagination": {
+                      "$ref": "#/components/schemas/PaginationMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/creatives": {
+      "post": {
+        "tags": [
+          "Creativos"
+        ],
+        "summary": "Subir creativo",
+        "description": "Permite subir y registrar creativos, y asociarlos a campañas. Todo creativo nuevo queda en estado PENDING_REVIEW hasta su validación. Rol requerido: Anunciante.",
+        "operationId": "createCreative",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Creative"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Creativo registrado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Creative"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/creatives/{id}/status": {
+      "patch": {
+        "tags": [
+          "Creativos"
+        ],
+        "summary": "Validar creativo según políticas publicitarias",
+        "description": "Permite aprobar o rechazar un creativo tras revisión de políticas (brand safety, formato, contenido). Un creativo rechazado o pendiente no puede participar en la decisión de entrega. Rol requerido: Administrador de plataforma / equipo de revisión de políticas.",
+        "operationId": "updateCreativeStatus",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "APPROVED",
+                      "REJECTED"
+                    ]
+                  },
+                  "rejectionReason": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Estado de validación actualizado"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/targeting/inventory-estimate": {
+      "post": {
+        "tags": [
+          "Targeting e Inventario"
+        ],
+        "summary": "Estimar inventario disponible según targeting",
+        "description": "Dado un criterio de segmentación y un formato, estima el alcance e impresiones disponibles. Útil para que el anunciante calibre presupuesto antes de lanzar la campaña. Rol requerido: Anunciante.",
+        "operationId": "estimateInventory",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InventoryEstimateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Estimación de inventario",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InventoryEstimateResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/inventory/{catalogItemId}/eligibility": {
+      "get": {
+        "tags": [
+          "Targeting e Inventario"
+        ],
+        "summary": "Consultar elegibilidad publicitaria de un ítem de catálogo",
+        "description": "Indica si un ítem de catálogo es elegible para mostrar anuncios y bajo qué formatos, en base al estado de publicación/restricción informado por el contexto de Catálogo. Refleja el último evento de Catálogo recibido; puede estar momentáneamente desincronizado (RNF-5). Rol requerido: Sistema interno (motor de entrega) o Administrador de plataforma.",
+        "operationId": "getInventoryEligibility",
+        "parameters": [
+          {
+            "name": "catalogItemId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Estado de elegibilidad",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdInventoryItem"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/delivery/decision": {
+      "post": {
+        "tags": [
+          "Entrega"
+        ],
+        "summary": "Solicitar decisión de anuncio",
+        "description": "Ante una oportunidad de visualización, el sistema decide qué anuncio mostrar basándose en campañas activas, targeting, presupuesto, subasta/prioridad y brand safety. Solo considera creativos en estado APPROVED y catalogItemId elegible. Rol requerido: Sistema interno (Publicación/Catálogo en el momento de reproducción).",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "catalogItemId": {
+                    "type": "string"
+                  },
+                  "adFormat": {
+                    "type": "string",
+                    "enum": [
+                      "PRE_ROLL",
+                      "MID_ROLL",
+                      "DISPLAY"
+                    ]
+                  },
+                  "viewerProfile": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Anuncio seleccionado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdDecision"
+                }
+              }
+            }
+          },
+          "204": {
+            "description": "Sin anuncio disponible (no fill)"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/measurement/impressions": {
+      "post": {
+        "tags": [
+          "Medición y Reportes"
+        ],
+        "summary": "Registrar impresión",
+        "description": "Registra impresiones servidas para facturación. Al confirmarse, dispara el evento de ingreso publicitario hacia Monetización. Rol requerido: Sistema interno (Publicación).",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdImpression"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Impresión registrada"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/measurement/clicks": {
+      "post": {
+        "tags": [
+          "Medición y Reportes"
+        ],
+        "summary": "Registrar click",
+        "description": "Registra un click sobre un anuncio servido. Rol requerido: Sistema interno (Publicación).",
+        "operationId": "registerClick",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdClick"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Click registrado"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/measurement/skips": {
+      "post": {
+        "tags": [
+          "Medición y Reportes"
+        ],
+        "summary": "Registrar skip",
+        "description": "Registra cuando un viewer saltó un anuncio, incluyendo el punto (en segundos) en que ocurrió. Rol requerido: Sistema interno (Publicación).",
+        "operationId": "registerSkip",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdSkip"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Skip registrado"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/reporting/campaigns/{id}/metrics": {
+      "get": {
+        "tags": [
+          "Medición y Reportes"
+        ],
+        "summary": "Consultar métricas",
+        "description": "Expone métricas de campaña: impresiones, clicks, CTR, CPM, gasto. Rol requerido: el propio Anunciante o Administrador de plataforma.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Métricas retornadas",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CampaignMetrics"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/integration/catalog-events": {
+      "post": {
+        "tags": [
+          "Integración"
+        ],
+        "summary": "Recibir evento de Catálogo (contenido publicado/restringido)",
+        "description": "Endpoint receptor (webhook) invocado por el bounded context de Catálogo editorial y derechos cuando un ítem pasa a estar publicado, despublicado o restringido. Actualiza el registro local de inventario publicitario (AdInventoryItem). Rol requerido: Sistema interno (Catálogo), autenticado vía credencial de servicio.",
+        "operationId": "receiveCatalogEvent",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CatalogContentEvent"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Evento aceptado para procesamiento"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/webhooks/subscriptions": {
+      "post": {
+        "tags": [
+          "Integración"
+        ],
+        "summary": "Suscribirse a eventos emitidos por Publicidad",
+        "description": "Permite que otro bounded context (p. ej. Monetización) registre una URL de callback para recibir los eventos emitidos por este contexto. Rol requerido: Sistema interno.",
+        "operationId": "createWebhookSubscription",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WebhookSubscription"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Suscripción creada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookSubscription"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "callbacks": {
+          "adServed": {
+            "{$request.body#/url}": {
+              "post": {
+                "requestBody": {
+                  "content": {
+                    "application/json": {
+                      "schema": {
+                        "type": "object",
+                        "properties": {
+                          "event": {
+                            "type": "string",
+                            "enum": [
+                              "AD_SERVED"
+                            ]
+                          },
+                          "decisionId": {
+                            "type": "string"
+                          },
+                          "campaignId": {
+                            "type": "string"
+                          },
+                          "catalogItemId": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "responses": {
+                  "200": {
+                    "description": "Notificación recibida"
+                  }
+                }
+              }
+            }
+          },
+          "billableImpressionConfirmed": {
+            "{$request.body#/url}": {
+              "post": {
+                "requestBody": {
+                  "content": {
+                    "application/json": {
+                      "schema": {
+                        "type": "object",
+                        "properties": {
+                          "event": {
+                            "type": "string",
+                            "enum": [
+                              "BILLABLE_IMPRESSION_CONFIRMED"
+                            ]
+                          },
+                          "decisionId": {
+                            "type": "string"
+                          },
+                          "campaignId": {
+                            "type": "string"
+                          },
+                          "cost": {
+                            "type": "number"
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "responses": {
+                  "200": {
+                    "description": "Notificación recibida"
+                  }
+                }
+              }
+            }
+          },
+          "adRevenueGenerated": {
+            "{$request.body#/url}": {
+              "post": {
+                "requestBody": {
+                  "content": {
+                    "application/json": {
+                      "schema": {
+                        "type": "object",
+                        "properties": {
+                          "event": {
+                            "type": "string",
+                            "enum": [
+                              "AD_REVENUE_GENERATED"
+                            ]
+                          },
+                          "catalogItemId": {
+                            "type": "string"
+                          },
+                          "campaignId": {
+                            "type": "string"
+                          },
+                          "amount": {
+                            "type": "number"
+                          },
+                          "occurredAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "channelId": {
+                            "type": "string",
+                            "description": "ID del canal al que se atribuirá el ingreso en Monetización"
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "responses": {
+                  "200": {
+                    "description": "Notificación recibida (consumido por Monetización para atribuir ingreso al creador)"
+                  }
+                }
+              }
+            }
+          },
+          "campaignBudgetExhausted": {
+            "{$request.body#/url}": {
+              "post": {
+                "requestBody": {
+                  "content": {
+                    "application/json": {
+                      "schema": {
+                        "type": "object",
+                        "properties": {
+                          "event": {
+                            "type": "string",
+                            "enum": [
+                              "CAMPAIGN_BUDGET_EXHAUSTED"
+                            ]
+                          },
+                          "campaignId": {
+                            "type": "string"
+                          },
+                          "advertiserId": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "responses": {
+                  "200": {
+                    "description": "Notificación recibida"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    },
+    "responses": {
+      "NotFound": {
+        "description": "Recurso no encontrado",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "BadRequest": {
+        "description": "Solicitud inválida",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "Unauthorized": {
+        "description": "No autenticado",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "Forbidden": {
+        "description": "El actor autenticado no tiene permiso para esta operación",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "InternalServerError": {
+        "description": "Error interno del servidor",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "example": "CAMPAIGN_NOT_FOUND"
+          },
+          "message": {
+            "type": "string"
+          },
+          "details": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ]
+      },
+      "PaginationMeta": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "totalItems": {
+            "type": "integer"
+          },
+          "totalPages": {
+            "type": "integer"
+          }
+        }
+      },
+      "CampaignListResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Campaign"
+            }
+          },
+          "pagination": {
+            "$ref": "#/components/schemas/PaginationMeta"
+          }
+        }
+      },
+      "InvoiceListResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Invoice"
+            }
+          },
+          "pagination": {
+            "$ref": "#/components/schemas/PaginationMeta"
+          }
+        }
+      },
+      "Advertiser": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "companyName": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PENDING_VERIFICATION",
+              "ACTIVE",
+              "SUSPENDED"
+            ]
+          }
+        },
+        "required": [
+          "companyName"
+        ]
+      },
+      "BillingProfile": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "advertiserId": {
+            "type": "string"
+          },
+          "taxId": {
+            "type": "string"
+          },
+          "paymentMethod": {
+            "type": "string"
+          }
+        }
+      },
+      "Campaign": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "advertiserId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "objective": {
+            "type": "string",
+            "enum": [
+              "BRAND_AWARENESS",
+              "TRAFFIC",
+              "CONVERSIONS",
+              "VIEWS",
+              "REACH"
+            ]
+          },
+          "budgetAmount": {
+            "type": "number"
+          },
+          "remainingBudget": {
+            "type": "number",
+            "readOnly": true
+          },
+          "startDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "endDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ACTIVE",
+              "PAUSED",
+              "COMPLETED"
+            ]
+          },
+          "targeting": {
+            "$ref": "#/components/schemas/TargetingCriteria"
+          }
+        },
+        "required": [
+          "advertiserId",
+          "name",
+          "objective",
+          "budgetAmount",
+          "startDate",
+          "endDate"
+        ]
+      },
+      "Creative": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "campaignId": {
+            "type": "string"
+          },
+          "mediaUrl": {
+            "type": "string"
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "PRE_ROLL",
+              "MID_ROLL",
+              "DISPLAY"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PENDING_REVIEW",
+              "APPROVED",
+              "REJECTED"
+            ],
+            "readOnly": true,
+            "default": "PENDING_REVIEW"
+          },
+          "rejectionReason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaignId",
+          "mediaUrl",
+          "format"
+        ]
+      },
+      "TargetingCriteria": {
+        "type": "object",
+        "properties": {
+          "countries": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "ageRange": {
+            "type": "string"
+          },
+          "interests": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "contentCategories": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "InventoryEstimateRequest": {
+        "type": "object",
+        "properties": {
+          "targeting": {
+            "$ref": "#/components/schemas/TargetingCriteria"
+          },
+          "adFormat": {
+            "type": "string",
+            "enum": [
+              "PRE_ROLL",
+              "MID_ROLL",
+              "DISPLAY"
+            ]
+          }
+        }
+      },
+      "InventoryEstimateResponse": {
+        "type": "object",
+        "properties": {
+          "estimatedReach": {
+            "type": "integer",
+            "description": "Viewers únicos estimados"
+          },
+          "estimatedDailyImpressions": {
+            "type": "integer"
+          }
+        }
+      },
+      "AdInventoryItem": {
+        "type": "object",
+        "description": "Registro local (proyección) del estado publicitario de un ítem de catálogo, sincronizado vía eventos de Catálogo. Puede estar momentáneamente desactualizado (RNF-5).",
+        "properties": {
+          "catalogItemId": {
+            "type": "string"
+          },
+          "eligible": {
+            "type": "boolean"
+          },
+          "allowedFormats": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "PRE_ROLL",
+                "MID_ROLL",
+                "DISPLAY"
+              ]
+            }
+          },
+          "restrictionReason": {
+            "type": "string"
+          },
+          "lastSyncedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "CatalogContentEvent": {
+        "type": "object",
+        "description": "Evento entrante desde el bounded context de Catálogo editorial y derechos.",
+        "properties": {
+          "catalogItemId": {
+            "type": "string"
+          },
+          "eventType": {
+            "type": "string",
+            "enum": [
+              "PUBLISHED",
+              "UNPUBLISHED",
+              "RESTRICTED"
+            ]
+          },
+          "reason": {
+            "type": "string"
+          },
+          "occurredAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "catalogItemId",
+          "eventType"
+        ]
+      },
+      "WebhookSubscription": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "readOnly": true
+          },
+          "url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "AD_SERVED",
+                "BILLABLE_IMPRESSION_CONFIRMED",
+                "AD_REVENUE_GENERATED",
+                "CAMPAIGN_BUDGET_EXHAUSTED"
+              ]
+            }
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "readOnly": true
+          }
+        },
+        "required": [
+          "url",
+          "events"
+        ]
+      },
+      "AdDecision": {
+        "type": "object",
+        "properties": {
+          "decisionId": {
+            "type": "string"
+          },
+          "campaignId": {
+            "type": "string"
+          },
+          "creativeId": {
+            "type": "string"
+          },
+          "format": {
+            "type": "string"
+          }
+        }
+      },
+      "AdImpression": {
+        "type": "object",
+        "properties": {
+          "decisionId": {
+            "type": "string"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "cost": {
+            "type": "number"
+          },
+          "catalogItemId": {
+            "type": "string",
+            "description": "ID del ítem de catálogo (video) en el que se sirvió el anuncio. Compartido con contexto de Catálogo. Necesario para que Monetización atribuya el ingreso al creador correcto."
+          },
+          "channelId": {
+            "type": "string",
+            "description": "ID del canal propietario del contenido. Compartido con Catálogo y Monetización. Permite atribuir el ingreso publicitario al creador en el evento ad.revenue.confirmed."
+          }
+        },
+        "required": [
+          "decisionId",
+          "timestamp",
+          "cost",
+          "catalogItemId",
+          "channelId"
+        ]
+      },
+      "AdClick": {
+        "type": "object",
+        "properties": {
+          "decisionId": {
+            "type": "string"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "decisionId",
+          "timestamp"
+        ]
+      },
+      "AdSkip": {
+        "type": "object",
+        "properties": {
+          "decisionId": {
+            "type": "string"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "skipPointSeconds": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "decisionId",
+          "timestamp",
+          "skipPointSeconds"
+        ]
+      },
+      "CampaignMetrics": {
+        "type": "object",
+        "properties": {
+          "campaignId": {
+            "type": "string"
+          },
+          "impressions": {
+            "type": "integer"
+          },
+          "clicks": {
+            "type": "integer"
+          },
+          "skips": {
+            "type": "integer"
+          },
+          "ctr": {
+            "type": "number"
+          },
+          "cpm": {
+            "type": "number"
+          },
+          "totalSpend": {
+            "type": "number"
+          }
+        }
+      },
+      "Invoice": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "advertiserId": {
+            "type": "string"
+          },
+          "amountDue": {
+            "type": "number"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PENDING",
+              "PAID",
+              "OVERDUE"
+            ]
+          },
+          "issueDate": {
+            "type": "string",
+            "format": "date"
+          }
+        }
+      }
+    }
+  },
+  "security": [
+    {
+      "BearerAuth": []
+    }
+  ]
+}
