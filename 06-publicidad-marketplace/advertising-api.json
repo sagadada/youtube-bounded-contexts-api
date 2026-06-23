@@ -3,7 +3,32 @@
   "info": {
     "title": "API de Publicidad y Marketplace de Anunciantes",
     "version": "1.1.0",
-    "description": "Bounded context que gestiona el negocio publicitario B2B: anunciantes, facturación, campañas, creativos, targeting, inventario publicitario, entrega de anuncios, medición e ingresos para la plataforma. Cliente principal: el anunciante (no el creador). No paga directamente al creador; ese rol corresponde al contexto de Monetización del ecosistema creador, a quien este contexto informa cuando se confirma una impresión facturable.\n\n## Integración con otros bounded contexts\n\n### Eventos que este contexto consume\n\n| Evento | Origen | Canal | Efecto en este contexto |\n|---|---|---|---|\n| `PUBLISHED` / `UNPUBLISHED` / `RESTRICTED` (`CatalogContentEvent`) | Catálogo editorial y derechos | `POST /integration/catalog-events` (webhook receptor) | Actualiza la proyección local `AdInventoryItem` (elegibilidad, formatos permitidos, motivo de restricción). Es una copia eventualmente consistente del estado real de Catálogo (ver RNF-5); `GET /inventory/{catalogItemId}/eligibility` puede responder con datos momentáneamente desactualizados. |\n\n> Nota de alcance: el enunciado del proyecto también contempla consumir señales de engagement/categoría desde Audiencia y Descubrimiento para reforzar brand safety. En esta versión esa señal no llega como evento explícito; brand safety se evalúa de forma indirecta en `POST /ads/decisions` a partir del estado `APPROVED` del creativo y la elegibilidad del inventario.\n\n### Eventos que este contexto emite\n\nSe distribuyen vía el mecanismo de suscripción/callback de `POST /webhooks/subscriptions` (cualquier otro contexto puede registrar una URL y elegir a cuáles suscribirse):\n\n| Evento | Disparado por | Consumido por | Propósito |\n|---|---|---|---|\n| `AD_SERVED` | `POST /ads/decisions` (entrega de un anuncio) | Observabilidad / Descubrimiento | Notifica que se sirvió un anuncio para una decisión (`decisionId`, `campaignId`, `catalogItemId`). |\n| `BILLABLE_IMPRESSION_CONFIRMED` | `POST /ads/impressions` (impresión validada como facturable) | Anunciante / Reporting interno | Confirma el gasto (`cost`) imputado a la campaña. |\n| `AD_REVENUE_GENERATED` | Liquidación de una impresión facturable | **Monetización del ecosistema creador** | Evento clave de integración: informa `catalogItemId`, `channelId` y `amount` para que Monetización atribuya el ingreso publicitario al creador correcto. Es la única vía por la que este contexto \"paga\"; el pago real al creador lo ejecuta Monetización. |\n| `CAMPAIGN_BUDGET_EXHAUSTED` | Agotamiento del presupuesto de una campaña | Anunciante | Señala que la campaña no puede reactivarse (`status=ACTIVE`) hasta recargar presupuesto. |\n\nLos contratos de payload de cada evento están documentados como `callbacks` dentro de `POST /webhooks/subscriptions`."
+    "description": "Bounded context que gestiona el negocio publicitario B2B: anunciantes, facturación, campañas, creativos, targeting, inventario publicitario, entrega de anuncios, medición e ingresos para la plataforma.\n\nCliente principal: el anunciante (no el creador). No paga directamente al creador; ese rol corresponde al contexto de Monetización del ecosistema creador, a quien este contexto informa cuando se confirma una impresión facturable.\n\nEventos que consume\n\n- `PUBLISHED` / `UNPUBLISHED` / `RESTRICTED` **(Catálogo editorial y derechos):** Actualiza la proyección local AdInventoryItem (elegibilidad, formatos permitidos, motivo de restricción) vía webhook POST /integration/catalog-events.\n\nEventos que emite\n\n- `AD_SERVED` : Notifica que se sirvió un anuncio para una decisión (`decisionId`, `campaignId`, `catalogItemId`).\n- `BILLABLE_IMPRESSION_CONFIRMED` : Confirma el gasto (`cost`) imputado a la campaña.\n- `AD_REVENUE_GENERATED` : Informa `catalogItemId`, `channelId` y `amount` para que Monetización atribuya el ingreso publicitario al creador correcto.\n- `CAMPAIGN_BUDGET_EXHAUSTED` : Señala que la campaña no puede reactivarse (`status=ACTIVE`) hasta recargar presupuesto.",
+    "x-events-consumed": [
+      {
+        "event": "PUBLISHED / UNPUBLISHED / RESTRICTED",
+        "source": "Catálogo editorial y derechos",
+        "description": "Actualiza la proyección local AdInventoryItem (elegibilidad, formatos permitidos, motivo de restricción). Es una copia eventualmente consistente del estado real de Catálogo."
+      }
+    ],
+    "x-events-emitted": [
+      {
+        "event": "AD_SERVED",
+        "description": "Notifica que se sirvió un anuncio para una decisión (decisionId, campaignId, catalogItemId)."
+      },
+      {
+        "event": "BILLABLE_IMPRESSION_CONFIRMED",
+        "description": "Confirma el gasto (cost) imputado a la campaña."
+      },
+      {
+        "event": "AD_REVENUE_GENERATED",
+        "description": "Informa catalogItemId, channelId y amount para que Monetización atribuya el ingreso publicitario al creador correcto."
+      },
+      {
+        "event": "CAMPAIGN_BUDGET_EXHAUSTED",
+        "description": "Señala que la campaña no puede reactivarse (status=ACTIVE) hasta recargar presupuesto."
+      }
+    ]
   },
   "servers": [
     {
