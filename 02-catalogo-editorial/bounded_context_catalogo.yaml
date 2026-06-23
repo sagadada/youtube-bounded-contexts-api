@@ -1,0 +1,1136 @@
+openapi: 3.0.3
+info:
+  title: "2. Bounded Context: Catálogo Editorial y Derechos"
+  version: 1.0.0
+  description: |
+    Contexto responsable de definir qué contenido existe públicamente, cómo se presenta
+    y bajo qué reglas puede mostrarse (legal, territorial, etaria, moderación).
+
+    El "video" en este contexto es un **ítem de catálogo**, no un archivo técnico.
+    Un asset puede existir sin estar publicado. La visibilidad depende de reglas editoriales
+    y legales, no de infraestructura de streaming.
+
+    ### Alcance
+    - **Sí:** canales, metadata editorial, publicación, playlists, derechos, restricciones.
+    - **No:** transcoding, ranking de recomendaciones, comentarios, facturación.
+
+    ### Eventos Publicados (Requisitos de Integración):
+    - `catalog.item.published`: Emitido cuando un ítem de catálogo pasa a estado publicado.
+    - `catalog.item.unpublished`: Emitido cuando un ítem es despublicado u ocultado.
+    - `catalog.item.updated`: Emitido cuando la metadata editorial de un ítem es modificada.
+    - `catalog.restriction.applied`: Emitido cuando se aplica una restricción a un ítem.
+    - `catalog.restriction.lifted`: Emitido cuando una restricción es levantada.
+    - `catalog.claim.created`: Emitido cuando se registra una reclamación de derechos.
+    - `catalog.claim.resolved`: Emitido cuando una reclamación es resuelta.
+
+    ### Eventos Consumidos:
+    - `content.playback.video_processing_completed` (desde Publicación): activa la posibilidad
+      de vincular el asset técnico con metadata editorial y crear un ítem de catálogo.
+
+    ### Consistencia eventual (RNF-5):
+    Si un ítem es despublicado mientras está siendo reproducido, el contexto de Publicación
+    continúa sirviendo el stream hasta que finalice la sesión activa. Catálogo emite
+    `catalog.item.unpublished` y los demás contextos deben dejar de referenciar el ítem
+    en nuevas solicitudes.
+
+servers:
+  - url: http://catalog-service.youtube.internal/api/v1
+
+tags:
+  - name: Channels
+    description: Gestión de canales y su contenido público (RF-C1)
+  - name: CatalogItems
+    description: Creación, edición y publicación de ítems editoriales (RF-C2, RF-C3)
+  - name: Playlists
+    description: Colecciones ordenadas de contenido (RF-C4)
+  - name: Claims
+    description: Reclamaciones de derechos sobre contenido (RF-C5)
+  - name: Policies
+    description: Restricciones y estado de moderación del contenido (RF-C6)
+
+# ==========================================
+# SEGURIDAD GLOBAL (RNF-1)
+# ==========================================
+security:
+  - bearerAuth: []
+
+paths:
+
+  # ==========================================
+  # GESTIÓN DE CANALES (RF-C1)
+  # ==========================================
+
+  /channels:
+    post:
+      tags: [Channels]
+      summary: Crear un canal asociado a un creador
+      description: |
+        Registra un nuevo canal editorial. El `creatorId` debe corresponder a un usuario
+        autenticado con rol de creador (RNF-1). Un creador puede tener uno o más canales.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateChannelRequest'
+      responses:
+        "201":
+          description: Canal creado exitosamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Channel'
+        "400":
+          description: Datos de entrada inválidos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /channels/{channelId}:
+    get:
+      tags: [Channels]
+      summary: Consultar la información pública de un canal
+      parameters:
+        - $ref: '#/components/parameters/channelId'
+      responses:
+        "200":
+          description: Información pública del canal
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Channel'
+        "404":
+          description: Canal no encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    patch:
+      tags: [Channels]
+      summary: Actualizar la información pública del canal
+      description: Solo el creador propietario del canal puede modificarlo (RNF-1).
+      parameters:
+        - $ref: '#/components/parameters/channelId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateChannelRequest'
+      responses:
+        "200":
+          description: Canal actualizado correctamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Channel'
+        "404":
+          description: Canal no encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /channels/{channelId}/items:
+    get:
+      tags: [Channels]
+      summary: Listar el contenido publicado de un canal
+      description: |
+        Retorna únicamente ítems en estado `PUBLISHED`. Los borradores no son visibles
+        en este endpoint. Soporta paginación por cursor (RNF-3).
+      parameters:
+        - $ref: '#/components/parameters/channelId'
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/cursor'
+      responses:
+        "200":
+          description: Listado de ítems publicados del canal
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatalogItemPage'
+        "404":
+          description: Canal no encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ==========================================
+  # ÍTEMS DE CATÁLOGO (RF-C2, RF-C3)
+  # ==========================================
+
+  /catalog-items:
+    post:
+      tags: [CatalogItems]
+      summary: Crear un ítem de catálogo vinculando un asset técnico
+      description: |
+        Vincula un `assetId` (proveniente del contexto de Publicación) con metadata editorial.
+        El asset debe haber completado su procesamiento técnico antes de poder ser vinculado.
+        El ítem se crea en estado `DRAFT` por defecto (RF-C2).
+
+        Este endpoint es el punto de integración con el contexto de Publicación: se invoca
+        tras consumir el evento `content.playback.video_processing_completed`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCatalogItemRequest'
+      responses:
+        "201":
+          description: Ítem de catálogo creado en estado borrador
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatalogItem'
+        "400":
+          description: Datos inválidos o assetId no disponible
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    get:
+      tags: [CatalogItems]
+      summary: Listar ítems de catálogo
+      description: Permite filtrar por canal, estado de publicación o categoría. Soporta paginación (RNF-3).
+      parameters:
+        - name: channelId
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [DRAFT, PUBLISHED, UNPUBLISHED]
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/cursor'
+      responses:
+        "200":
+          description: Listado de ítems de catálogo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatalogItemPage'
+
+  /catalog-items/{itemId}:
+    get:
+      tags: [CatalogItems]
+      summary: Consultar el detalle de un ítem de catálogo
+      parameters:
+        - $ref: '#/components/parameters/itemId'
+      responses:
+        "200":
+          description: Detalle del ítem de catálogo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatalogItem'
+        "404":
+          description: Ítem no encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    patch:
+      tags: [CatalogItems]
+      summary: Editar la metadata editorial de un ítem
+      description: |
+        Permite modificar título, descripción, tags, categoría o miniatura.
+        Solo disponible para el creador propietario (RNF-1).
+
+        **Evento emitido:** `catalog.item.updated` si el ítem ya estaba en estado `PUBLISHED`.
+      parameters:
+        - $ref: '#/components/parameters/itemId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateCatalogItemRequest'
+      responses:
+        "200":
+          description: Metadata editorial actualizada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatalogItem'
+        "404":
+          description: Ítem no encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /catalog-items/{itemId}/publish:
+    post:
+      tags: [CatalogItems]
+      summary: Publicar un ítem de catálogo
+      description: |
+        Transiciona el ítem de `DRAFT` o `UNPUBLISHED` a `PUBLISHED`, aplicando las reglas
+        de visibilidad vigentes (edad, territorio, moderación).
+
+        **Evento emitido:** `catalog.item.published`
+        Consumido por: Descubrimiento (para indexar), Monetización (para habilitar ingresos),
+        Publicidad (para habilitar inventario publicitario).
+      parameters:
+        - $ref: '#/components/parameters/itemId'
+      responses:
+        "200":
+          description: Ítem publicado correctamente. Emite catalog.item.published.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatalogItem'
+        "404":
+          description: Ítem no encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "409":
+          description: El ítem no puede publicarse en su estado actual o tiene restricciones activas
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /catalog-items/{itemId}/unpublish:
+    post:
+      tags: [CatalogItems]
+      summary: Despublicar u ocultar un ítem de catálogo
+      description: |
+        Transiciona el ítem a `UNPUBLISHED`. El asset técnico sigue existiendo en Publicación,
+        pero el ítem deja de ser visible públicamente.
+
+        **Evento emitido:** `catalog.item.unpublished`
+        Consumido por: Descubrimiento (para remover del índice), Publicidad (para retirar del inventario).
+
+        **Consistencia eventual (RNF-5):** sesiones de reproducción activas no se interrumpen;
+        Publicación continúa sirviendo el stream hasta que la sesión finalice.
+      parameters:
+        - $ref: '#/components/parameters/itemId'
+      responses:
+        "200":
+          description: Ítem despublicado. Emite catalog.item.unpublished.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatalogItem'
+        "404":
+          description: Ítem no encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /catalog-items/{itemId}/visibility:
+    get:
+      tags: [CatalogItems]
+      summary: Consultar si un ítem es visible para un usuario dado
+      description: |
+        Consulta síncrona de visibilidad (RNF-4). Evalúa país, edad del viewer y estado
+        de moderación actual. Usada por otros contextos (Publicación, Publicidad) para
+        validar acceso antes de servir contenido.
+      parameters:
+        - $ref: '#/components/parameters/itemId'
+        - name: userId
+          in: query
+          required: false
+          schema:
+            type: string
+          description: ID del viewer. Si se omite, se evalúa visibilidad pública anónima.
+        - name: countryCode
+          in: query
+          required: true
+          schema:
+            type: string
+            example: "CL"
+          description: Código ISO 3166-1 alpha-2 del país desde donde se realiza el acceso.
+        - name: viewerAge
+          in: query
+          required: false
+          schema:
+            type: integer
+            example: 25
+          description: Edad del viewer para evaluación de restricciones etarias.
+      responses:
+        "200":
+          description: Resultado de la evaluación de visibilidad
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VisibilityResult'
+        "404":
+          description: Ítem no encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ==========================================
+  # PLAYLISTS (RF-C4)
+  # ==========================================
+
+  /playlists:
+    post:
+      tags: [Playlists]
+      summary: Crear una playlist
+      description: Crea una colección ordenada de ítems de catálogo asociada a un canal.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePlaylistRequest'
+      responses:
+        "201":
+          description: Playlist creada exitosamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Playlist'
+        "400":
+          description: Datos inválidos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /playlists/{playlistId}:
+    get:
+      tags: [Playlists]
+      summary: Consultar una playlist con su orden actual
+      parameters:
+        - $ref: '#/components/parameters/playlistId'
+      responses:
+        "200":
+          description: Playlist con ítems ordenados
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Playlist'
+        "404":
+          description: Playlist no encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /playlists/{playlistId}/items:
+    post:
+      tags: [Playlists]
+      summary: Agregar un ítem a la playlist
+      parameters:
+        - $ref: '#/components/parameters/playlistId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddPlaylistItemRequest'
+      responses:
+        "200":
+          description: Ítem agregado a la playlist
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Playlist'
+        "404":
+          description: Playlist o ítem no encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /playlists/{playlistId}/items/{itemId}:
+    delete:
+      tags: [Playlists]
+      summary: Quitar un ítem de la playlist
+      parameters:
+        - $ref: '#/components/parameters/playlistId'
+        - $ref: '#/components/parameters/itemId'
+      responses:
+        "204":
+          description: Ítem eliminado de la playlist
+        "404":
+          description: Playlist o ítem no encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /playlists/{playlistId}/reorder:
+    patch:
+      tags: [Playlists]
+      summary: Reordenar los ítems de una playlist
+      parameters:
+        - $ref: '#/components/parameters/playlistId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReorderPlaylistRequest'
+      responses:
+        "200":
+          description: Playlist reordenada correctamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Playlist'
+        "400":
+          description: La lista no contiene todos los ítems actuales de la playlist
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ==========================================
+  # RECLAMACIONES DE DERECHOS (RF-C5)
+  # ==========================================
+
+  /claims:
+    post:
+      tags: [Claims]
+      summary: Registrar una reclamación de derechos sobre un ítem
+      description: |
+        Registra una reclamación de copyright o derechos sobre un ítem de catálogo.
+        El ítem puede ser restringido automáticamente según las políticas vigentes.
+
+        **Evento emitido:** `catalog.claim.created`
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateClaimRequest'
+      responses:
+        "201":
+          description: Reclamación registrada. Emite catalog.claim.created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Claim'
+        "400":
+          description: Datos inválidos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /claims/{claimId}:
+    get:
+      tags: [Claims]
+      summary: Consultar el detalle de una reclamación
+      parameters:
+        - $ref: '#/components/parameters/claimId'
+      responses:
+        "200":
+          description: Detalle de la reclamación
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Claim'
+        "404":
+          description: Reclamación no encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /claims/{claimId}/resolve:
+    post:
+      tags: [Claims]
+      summary: Resolver una reclamación de derechos
+      description: |
+        Permite aceptar, disputar o retirar una reclamación. Dependiendo de la resolución,
+        puede aplicar o levantar restricciones sobre el ítem afectado.
+
+        **Evento emitido:** `catalog.claim.resolved`
+        Si la resolución implica restricción: también emite `catalog.restriction.applied`.
+        Si la resolución levanta una restricción previa: también emite `catalog.restriction.lifted`.
+      parameters:
+        - $ref: '#/components/parameters/claimId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [resolution]
+              properties:
+                resolution:
+                  type: string
+                  enum: [ACCEPTED, DISPUTED, WITHDRAWN]
+                  description: |
+                    - ACCEPTED: el reclamante tiene razón; puede aplicarse restricción.
+                    - DISPUTED: el creador disputa la reclamación; queda en revisión.
+                    - WITHDRAWN: el reclamante retira la reclamación; se levanta la restricción.
+                notes:
+                  type: string
+                  description: Notes opcionales sobre la resolución.
+      responses:
+        "200":
+          description: Reclamación resuelta. Emite catalog.claim.resolved.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Claim'
+        "404":
+          description: Reclamación no encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "409":
+          description: La reclamación ya fue resuelta anteriormente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ==========================================
+  # POLÍTICAS Y RESTRICCIONES (RF-C6)
+  # ==========================================
+
+  /catalog-items/{itemId}/policies:
+    get:
+      tags: [Policies]
+      summary: Consultar el estado de moderación y políticas actuales de un ítem
+      parameters:
+        - $ref: '#/components/parameters/itemId'
+      responses:
+        "200":
+          description: Estado actual de políticas y restricciones del ítem
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ItemPolicy'
+        "404":
+          description: Ítem no encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    post:
+      tags: [Policies]
+      summary: Aplicar una restricción a un ítem de catálogo
+      description: |
+        Permite aplicar restricciones de contenido: edad mínima, bloqueo geográfico,
+        limitación de monetización, entre otras.
+
+        **Evento emitido:** `catalog.restriction.applied`
+      parameters:
+        - $ref: '#/components/parameters/itemId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApplyRestrictionRequest'
+      responses:
+        "200":
+          description: Restricción aplicada. Emite catalog.restriction.applied.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ItemPolicy'
+        "404":
+          description: Ítem no encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /catalog-items/{itemId}/policies/{restrictionType}:
+    delete:
+      tags: [Policies]
+      summary: Levantar una restricción específica de un ítem
+      description: |
+        **Evento emitido:** `catalog.restriction.lifted`
+      parameters:
+        - $ref: '#/components/parameters/itemId'
+        - name: restrictionType
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [AGE_RESTRICTION, GEO_BLOCK, MONETIZATION_LIMITED, COPYRIGHT_BLOCK]
+      responses:
+        "200":
+          description: Restricción levantada. Emite catalog.restriction.lifted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ItemPolicy'
+        "404":
+          description: Ítem o restricción no encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /catalog-items/{itemId}/policies/history:
+    get:
+      tags: [Policies]
+      summary: Consultar el historial de estados de política de un ítem
+      description: Retorna el historial cronológico de restricciones aplicadas y levantadas (RF-C6).
+      parameters:
+        - $ref: '#/components/parameters/itemId'
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/cursor'
+      responses:
+        "200":
+          description: Historial de políticas del ítem
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PolicyHistoryPage'
+        "404":
+          description: Ítem no encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+# ==========================================
+# COMPONENTES / ESQUEMAS REUTILIZABLES
+# ==========================================
+components:
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    channelId:
+      name: channelId
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Identificador único del canal.
+
+    itemId:
+      name: itemId
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Identificador único del ítem de catálogo.
+
+    playlistId:
+      name: playlistId
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Identificador único de la playlist.
+
+    claimId:
+      name: claimId
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Identificador único de la reclamación.
+
+    limit:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+      description: Cantidad máxima de resultados por página (RNF-3).
+
+    cursor:
+      name: cursor
+      in: query
+      required: false
+      schema:
+        type: string
+      description: Cursor opaco devuelto en la respuesta anterior para obtener la siguiente página (RNF-3).
+
+  schemas:
+
+    # ---- Canales ----
+
+    CreateChannelRequest:
+      type: object
+      required: [creatorId, name]
+      properties:
+        creatorId:
+          type: string
+          description: ID del creador propietario del canal (RNF-2).
+        name:
+          type: string
+          description: Nombre público del canal.
+        description:
+          type: string
+        imageUrl:
+          type: string
+          format: uri
+
+    UpdateChannelRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        imageUrl:
+          type: string
+          format: uri
+
+    Channel:
+      type: object
+      properties:
+        channelId:
+          type: string
+          description: Identificador único del canal (RNF-2).
+        creatorId:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        imageUrl:
+          type: string
+          format: uri
+        createdAt:
+          type: string
+          format: date-time
+
+    # ---- Ítems de catálogo ----
+
+    CreateCatalogItemRequest:
+      type: object
+      required: [assetId, channelId, title]
+      properties:
+        assetId:
+          type: string
+          description: |
+            ID del asset técnico procesado en el contexto de Publicación (RNF-2).
+            Debe corresponder a un asset en estado COMPLETED.
+        channelId:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        category:
+          type: string
+          example: "Gaming"
+        thumbnailUrl:
+          type: string
+          format: uri
+
+    UpdateCatalogItemRequest:
+      type: object
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        category:
+          type: string
+        thumbnailUrl:
+          type: string
+          format: uri
+
+    CatalogItem:
+      type: object
+      description: |
+        Modelo canónico del video en el contexto de Catálogo. Representa un ítem editorial,
+        no un archivo técnico. El campo `assetId` es el único punto de referencia al
+        contexto de Publicación (RNF-2).
+      properties:
+        itemId:
+          type: string
+          description: Identificador único del ítem de catálogo.
+        assetId:
+          type: string
+          description: Referencia al asset técnico en el contexto de Publicación (RNF-2).
+        channelId:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        category:
+          type: string
+        thumbnailUrl:
+          type: string
+          format: uri
+        status:
+          type: string
+          enum: [DRAFT, PUBLISHED, UNPUBLISHED]
+          description: Estado editorial del ítem. Independiente del estado técnico del asset.
+        publishedAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+
+    CatalogItemPage:
+      type: object
+      description: Respuesta paginada de ítems de catálogo (RNF-3).
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/CatalogItem'
+        nextCursor:
+          type: string
+          nullable: true
+          description: Cursor para la siguiente página. Nulo si no hay más resultados.
+        total:
+          type: integer
+          description: Total aproximado de ítems.
+
+    VisibilityResult:
+      type: object
+      description: Resultado de la evaluación de visibilidad de un ítem para un usuario/contexto dado.
+      properties:
+        itemId:
+          type: string
+        visible:
+          type: boolean
+        reason:
+          type: string
+          nullable: true
+          description: Motivo por el cual el ítem no es visible, si aplica.
+          example: "GEO_BLOCK"
+
+    # ---- Playlists ----
+
+    CreatePlaylistRequest:
+      type: object
+      required: [channelId, title]
+      properties:
+        channelId:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+
+    AddPlaylistItemRequest:
+      type: object
+      required: [itemId, position]
+      properties:
+        itemId:
+          type: string
+          description: ID del ítem de catálogo a agregar.
+        position:
+          type: integer
+          description: Posición (1-based) donde insertar el ítem.
+
+    ReorderPlaylistRequest:
+      type: object
+      required: [orderedItemIds]
+      properties:
+        orderedItemIds:
+          type: array
+          description: Lista completa de IDs de ítems en el nuevo orden deseado.
+          items:
+            type: string
+
+    Playlist:
+      type: object
+      properties:
+        playlistId:
+          type: string
+        channelId:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        items:
+          type: array
+          description: Ítems en orden de reproducción.
+          items:
+            type: object
+            properties:
+              position:
+                type: integer
+              itemId:
+                type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    # ---- Reclamaciones ----
+
+    CreateClaimRequest:
+      type: object
+      required: [itemId, claimantId, reason]
+      properties:
+        itemId:
+          type: string
+          description: ID del ítem de catálogo reclamado.
+        claimantId:
+          type: string
+          description: ID del titular que realiza la reclamación.
+        reason:
+          type: string
+          enum: [COPYRIGHT, TRADEMARK, OTHER]
+        description:
+          type: string
+
+    Claim:
+      type: object
+      properties:
+        claimId:
+          type: string
+        itemId:
+          type: string
+        claimantId:
+          type: string
+        reason:
+          type: string
+          enum: [COPYRIGHT, TRADEMARK, OTHER]
+        status:
+          type: string
+          enum: [PENDING, ACCEPTED, DISPUTED, WITHDRAWN]
+        notes:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        resolvedAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    # ---- Políticas y Restricciones ----
+
+    ApplyRestrictionRequest:
+      type: object
+      required: [type]
+      properties:
+        type:
+          type: string
+          enum: [AGE_RESTRICTION, GEO_BLOCK, MONETIZATION_LIMITED, COPYRIGHT_BLOCK]
+          description: Tipo de restricción a aplicar.
+        contexts:
+          type: array
+          description: "Valores asociados (ej: ['CL', 'AR'] si es GEO_BLOCK, o ['18'] si es por edad)"
+          items:
+            type: string
+        notes:
+          type: string
+          description: Justificación del operador o sistema de moderación.
+
+    RestrictionItem:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [AGE_RESTRICTION, GEO_BLOCK, MONETIZATION_LIMITED, COPYRIGHT_BLOCK]
+        contexts:
+          type: array
+          items:
+            type: string
+        appliedAt:
+          type: string
+          format: date-time
+
+    ItemPolicy:
+      type: object
+      description: Representa las políticas vigentes aplicadas sobre un ítem editorial.
+      required: [itemId, isModerated, activeRestrictions]
+      properties:
+        itemId:
+          type: string
+        isModerated:
+          type: boolean
+          description: Indica si el contenido pasó por revisión de moderación.
+        activeRestrictions:
+          type: array
+          items:
+            $ref: '#/components/schemas/RestrictionItem'
+        updatedAt:
+          type: string
+          format: date-time
+
+    PolicyHistoryEntry:
+      type: object
+      properties:
+        logId:
+          type: string
+        action:
+          type: string
+          enum: [RESTRICTION_APPLIED, RESTRICTION_LIFTED]
+        restrictionType:
+          type: string
+        performedBy:
+          type: string
+          description: ID del sistema o moderador humano.
+        timestamp:
+          type: string
+          format: date-time
+        notes:
+          type: string
+
+    PolicyHistoryPage:
+      type: object
+      description: Paginado del registro cronológico de políticas del contenido.
+      properties:
+        history:
+          type: array
+          items:
+            $ref: '#/components/schemas/PolicyHistoryEntry'
+        nextCursor:
+          type: string
+          nullable: true
+
+    # ---- Esquema de Errores Consistente ----
+
+    ErrorResponse:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          example: "RESOURCE_NOT_FOUND"
+          description: Código estandarizado de error de negocio.
+        message:
+          type: string
+          example: "El ítem de catálogo especificado no existe."
+          description: Mensaje legible explicando la falla.
+        details:
+          type: array
+          description: Errores específicos adicionales (como fallas de validación de campos).
+          items:
+            type: string
