@@ -1,0 +1,1622 @@
+{
+  "openapi": "3.0.4",
+  "info": {
+    "title": "API de Monetización del Ecosistema Creador",
+    "version": "1.1.0",
+    "description": "Bounded context encargado de gestionar cómo los creadores ganan dinero y cómo se registran, calculan y pagan esos ingresos.\n\nEste contexto cobra y paga en el ecosistema creador-espectador. No negocia con anunciantes ni define qué anuncio se muestra.\n\n## Eventos que consume\n- `ad.revenue.confirmed` **(Publicidad):** Ingreso publicitario confirmado. Activa POST /revenues/events con source=ADS.\n- `catalog.content.published` **(Catálogo):** Contenido publicado; habilita elegibilidad de ese contenido para recibir ingresos.\n- `catalog.content.restricted` **(Catálogo):** Contenido restringido; desactiva monetización del contenido afectado.\n- `membership.purchased` **(interno/pagos compartido):** Compra de membresía confirmada; genera RevenueEvent de tipo MEMBERSHIP.\n- `tip.sent` **(interno/pagos compartido):** Propina enviada por un espectador; genera RevenueEvent de tipo TIP.\n\n## Eventos que emite\n- `monetization.channel.enabled`: Emitido cuando se activa la monetización de un canal.\n- `monetization.channel.disabled`: Emitido cuando se desactiva la monetización de un canal.\n- `revenue.attributed`: Emitido cuando un ingreso pasa a estado CONFIRMED y se atribuye definitivamente al creador.\n- `payout.processed`: Emitido cuando un retiro se completa exitosamente.\n\n## Restricciones de diseño\n- Cobra y paga en el ecosistema **creador-espectador**, no con anunciantes.\n- La elegibilidad de un contenido depende de eventos de Catálogo; este contexto no duplica reglas de visibilidad.\n- Los ingresos por publicidad provienen exclusivamente de eventos emitidos por el contexto de Publicidad.",
+    "x-events-consumed": [
+      {
+        "event": "ad.revenue.confirmed",
+        "source": "Publicidad",
+        "description": "Ingreso publicitario confirmado. Activa POST /revenues/events con source=ADS."
+      },
+      {
+        "event": "catalog.content.published",
+        "source": "Catálogo",
+        "description": "Contenido publicado; habilita elegibilidad de ese contenido para recibir ingresos por monetización."
+      },
+      {
+        "event": "catalog.content.restricted",
+        "source": "Catálogo",
+        "description": "Contenido restringido; desactiva la monetización de ese contenido automáticamente."
+      },
+      {
+        "event": "membership.purchased",
+        "source": "Monetización (interno) o Pagos compartido",
+        "description": "Compra de membresía confirmada; genera RevenueEvent de tipo MEMBERSHIP."
+      },
+      {
+        "event": "tip.sent",
+        "source": "Monetización (interno) o Pagos compartido",
+        "description": "Propina enviada por un espectador; genera RevenueEvent de tipo TIP."
+      }
+    ],
+    "x-events-emitted": [
+      {
+        "event": "monetization.channel.enabled",
+        "description": "Emitido cuando se activa la monetización de un canal."
+      },
+      {
+        "event": "monetization.channel.disabled",
+        "description": "Emitido cuando se desactiva la monetización de un canal."
+      },
+      {
+        "event": "revenue.attributed",
+        "description": "Emitido cuando un ingreso pasa a estado CONFIRMED y se atribuye definitivamente al creador."
+      },
+      {
+        "event": "payout.processed",
+        "description": "Emitido cuando un retiro se completa exitosamente."
+      }
+    ]
+  },
+  "servers": [
+    {
+      "url": "https://api.youtube-clone.local/monetization/v1",
+      "description": "Servidor principal de Monetización"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Elegibilidad",
+      "description": "Alta, elegibilidad de canales para monetizar y control de activación por canal o contenido. (RF-M1)"
+    },
+    {
+      "name": "Productos del Creador",
+      "description": "Configuración de membresías y propinas; registro de compras y propinas de espectadores. (RF-M2)"
+    },
+    {
+      "name": "Ingresos y Ganancias",
+      "description": "Registro de ingresos con revenue share y consulta de ganancias con desglose por video y fuente. (RF-M3, RF-M4)"
+    },
+    {
+      "name": "Pagos",
+      "description": "Consulta de saldo, solicitud de retiros e historial de pagos. (RF-M5)"
+    },
+    {
+      "name": "Documentación Fiscal",
+      "description": "Acceso a documentos fiscales requeridos para cobrar. (RF-M5)"
+    }
+  ],
+  "paths": {
+    "/eligibility/applications": {
+      "post": {
+        "tags": [
+          "Elegibilidad"
+        ],
+        "summary": "Solicitar monetizar canal",
+        "description": "Permite que un creador solicite monetizar su canal. El sistema evalúa requisitos de suscriptores, horas de visualización y cumplimiento de políticas.\n\n**Rol requerido:** CREATOR (propietario del canal)",
+        "operationId": "applyForMonetization",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MonetizationApplication"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Solicitud creada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EligibilityStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Elegibilidad"
+        ],
+        "summary": "Listar solicitudes de elegibilidad",
+        "description": "Devuelve la lista paginada de solicitudes de monetización de un canal con su estado de elegibilidad. Informa el estado (APTO, PENDIENTE, RECHAZADO) evaluando suscriptores, horas de visualización y cumplimiento de políticas.\n\n**Rol requerido:** CREATOR (propietario del canal) o ADMIN",
+        "operationId": "getEligibilityStatus",
+        "parameters": [
+          {
+            "name": "channelId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 1,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 10,
+              "maximum": 50
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Estado de elegibilidad retornado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/EligibilityStatus"
+                      }
+                    },
+                    "pagination": {
+                      "$ref": "#/components/schemas/PaginationMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/channels/{channelId}/monetization": {
+      "patch": {
+        "tags": [
+          "Elegibilidad"
+        ],
+        "summary": "Activar o desactivar monetización de un canal",
+        "description": "Permite activar o desactivar la monetización a nivel de canal completo. Emite `monetization.channel.enabled` o `monetization.channel.disabled` según corresponda.\n\n**Rol requerido:** CREATOR (propietario del canal) o ADMIN",
+        "operationId": "toggleChannelMonetization",
+        "parameters": [
+          {
+            "name": "channelId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MonetizationToggle"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Estado de monetización del canal actualizado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MonetizationSettings"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/content/{contentId}/monetization": {
+      "patch": {
+        "tags": [
+          "Elegibilidad"
+        ],
+        "summary": "Activar o desactivar monetización de un contenido",
+        "description": "Permite activar o desactivar la monetización a nivel de contenido (video individual). Solo aplica si el canal ya tiene monetización habilitada. El `contentId` corresponde al `catalogItemId` compartido con el contexto de Catálogo.\n\n**Rol requerido:** CREATOR (propietario del canal)",
+        "operationId": "toggleContentMonetization",
+        "parameters": [
+          {
+            "name": "contentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Identificador del ítem de catálogo (catalogItemId). ID compartido con el contexto de Catálogo."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MonetizationToggle"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Estado de monetización del contenido actualizado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MonetizationSettings"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/memberships/tiers": {
+      "post": {
+        "tags": [
+          "Productos del Creador"
+        ],
+        "summary": "Crear nivel de membresía",
+        "description": "Permite definir un nivel de membresía de canal con precio y beneficios asociados.\n\n**Rol requerido:** CREATOR (propietario del canal, con monetización habilitada)",
+        "operationId": "createMembershipTier",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MembershipTierInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Nivel de membresía creado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MembershipTier"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Productos del Creador"
+        ],
+        "summary": "Listar niveles de membresía de un canal",
+        "description": "Devuelve todos los niveles de membresía activos de un canal con paginación.\n\n**Rol requerido:** CREATOR (propietario) o VIEWER (consulta pública de tiers disponibles)",
+        "operationId": "listMembershipTiers",
+        "parameters": [
+          {
+            "name": "channelId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 1,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 10,
+              "maximum": 50
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lista paginada de niveles de membresía",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/MembershipTier"
+                      }
+                    },
+                    "pagination": {
+                      "$ref": "#/components/schemas/PaginationMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/memberships/tiers/{tierId}": {
+      "delete": {
+        "tags": [
+          "Productos del Creador"
+        ],
+        "summary": "Eliminar nivel de membresía",
+        "description": "Elimina un nivel de membresía. Los miembros existentes mantienen acceso hasta el fin de su período de facturación vigente.\n\n**Rol requerido:** CREATOR (propietario del canal)",
+        "operationId": "deleteMembershipTier",
+        "parameters": [
+          {
+            "name": "tierId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Nivel eliminado correctamente"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/memberships/purchases": {
+      "post": {
+        "tags": [
+          "Productos del Creador"
+        ],
+        "summary": "Registrar compra de membresía",
+        "description": "Registra cuando un espectador adquiere un nivel de membresía de canal. Genera automáticamente un RevenueEvent de tipo MEMBERSHIP con las reglas de reparto aplicadas.\n\n**Rol requerido:** SYSTEM (evento de pago externo) o VIEWER autenticado",
+        "operationId": "recordMembershipPurchase",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MembershipPurchase"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Compra de membresía registrada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MembershipPurchase"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/tips/config/{videoId}": {
+      "get": {
+        "tags": [
+          "Productos del Creador"
+        ],
+        "summary": "Consultar configuración de propinas de un video",
+        "description": "Devuelve si las propinas están habilitadas para el video indicado y el monto mínimo configurado.\n\n**Rol requerido:** CREATOR (propietario) o VIEWER",
+        "operationId": "getTipConfig",
+        "parameters": [
+          {
+            "name": "videoId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "ID del ítem de catálogo correspondiente al video"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Configuración de propinas del video",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TipConfig"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Productos del Creador"
+        ],
+        "summary": "Configurar propinas en un video",
+        "description": "Habilita o deshabilita las propinas para un video específico y define el monto mínimo. Requiere que el canal tenga monetización activa.\n\n**Rol requerido:** CREATOR (propietario del canal)",
+        "operationId": "updateTipConfig",
+        "parameters": [
+          {
+            "name": "videoId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TipConfig"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Configuración de propinas actualizada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TipConfig"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/tips/events": {
+      "post": {
+        "tags": [
+          "Productos del Creador"
+        ],
+        "summary": "Registrar propina de un espectador",
+        "description": "Registra cuando un espectador deja una propina en un video. Genera automáticamente un RevenueEvent de tipo TIP con las reglas de reparto aplicadas.\n\n**Rol requerido:** VIEWER autenticado o SYSTEM",
+        "operationId": "recordTipEvent",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TipEvent"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Propina registrada correctamente",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TipEvent"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/revenues/events": {
+      "post": {
+        "tags": [
+          "Ingresos y Ganancias"
+        ],
+        "summary": "Registrar evento de ingreso",
+        "description": "Registra eventos de ingreso asociados a contenido y canal por publicidad, membresías o propinas. Aplica automáticamente las reglas de reparto (revenue share) definidas. Generalmente invocado por el sistema al consumir eventos de Publicidad, compras de membresía o propinas.\n\n**Rol requerido:** SYSTEM",
+        "operationId": "recordRevenueEvent",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RevenueRecord"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Ingreso registrado correctamente",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RevenueRecord"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/earnings/reports": {
+      "get": {
+        "tags": [
+          "Ingresos y Ganancias"
+        ],
+        "summary": "Consultar ganancias",
+        "description": "Permite consultar ganancias por periodo con desglose por video y por fuente de ingreso. Incluye métricas como RPM. Soporta paginación sobre el desglose por video.\n\n**Rol requerido:** CREATOR (propietario)",
+        "operationId": "getEarningsReport",
+        "parameters": [
+          {
+            "name": "creatorId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "startDate",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "endDate",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "granularity",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "DAY",
+                "MONTH"
+              ],
+              "default": "DAY"
+            },
+            "description": "Granularidad temporal del reporte"
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 1,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 20,
+              "maximum": 100
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Reporte de ganancias generado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EarningsReport"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/payouts/balance": {
+      "get": {
+        "tags": [
+          "Pagos"
+        ],
+        "summary": "Consultar saldo disponible",
+        "description": "Expone el saldo disponible del creador para retiro, más el saldo pendiente aún no confirmado, y el mínimo requerido para retirar.\n\n**Rol requerido:** CREATOR (propietario)",
+        "operationId": "getCreatorBalance",
+        "parameters": [
+          {
+            "name": "creatorId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Saldo actual del creador",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatorBalance"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/payouts/withdrawals": {
+      "post": {
+        "tags": [
+          "Pagos"
+        ],
+        "summary": "Solicitar retiro",
+        "description": "Permite solicitar un retiro cuando el saldo disponible supera el mínimo establecido. Emite el evento `payout.processed` al completarse exitosamente.\n\n**Rol requerido:** CREATOR (propietario)",
+        "operationId": "requestWithdrawal",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "amount",
+                  "currency"
+                ],
+                "properties": {
+                  "amount": {
+                    "type": "number",
+                    "minimum": 0,
+                    "description": "Monto a retirar. Debe ser mayor o igual al mínimo de retiro."
+                  },
+                  "currency": {
+                    "type": "string",
+                    "example": "USD"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Retiro solicitado correctamente",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Payout"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Pagos"
+        ],
+        "summary": "Historial de retiros",
+        "description": "Devuelve el historial paginado de retiros realizados por el creador.\n\n**Rol requerido:** CREATOR (propietario)",
+        "operationId": "listWithdrawals",
+        "parameters": [
+          {
+            "name": "creatorId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "PROCESSING",
+                "COMPLETED",
+                "FAILED"
+              ]
+            },
+            "description": "Filtrar por estado del retiro"
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 1,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 20,
+              "maximum": 100
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Historial paginado de retiros",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Payout"
+                      }
+                    },
+                    "pagination": {
+                      "$ref": "#/components/schemas/PaginationMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/tax-documents": {
+      "get": {
+        "tags": [
+          "Documentación Fiscal"
+        ],
+        "summary": "Listar documentos fiscales",
+        "description": "Devuelve los documentos fiscales disponibles del creador (ej. declaraciones anuales, certificados de retención) requeridos para cobrar.\n\n**Rol requerido:** CREATOR (propietario)",
+        "operationId": "listTaxDocuments",
+        "parameters": [
+          {
+            "name": "creatorId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "year",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "example": 2025
+            },
+            "description": "Filtrar por año fiscal"
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 1,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 10,
+              "maximum": 50
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lista paginada de documentos fiscales",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/TaxDocument"
+                      }
+                    },
+                    "pagination": {
+                      "$ref": "#/components/schemas/PaginationMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "JWT con claims: `sub` (userId), `role` (CREATOR | VIEWER | ADMIN | SYSTEM), `channelId` (presente cuando role=CREATOR)"
+      }
+    },
+    "responses": {
+      "BadRequest": {
+        "description": "Solicitud mal formada o datos inválidos",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "Unauthorized": {
+        "description": "Token inválido, expirado o ausente",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "Forbidden": {
+        "description": "El actor autenticado no tiene permiso para ejecutar esta operación",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "NotFound": {
+        "description": "Recurso no encontrado",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "Conflict": {
+        "description": "Conflicto de negocio (ej. saldo insuficiente, canal no elegible, monetización ya activa)",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "InternalServerError": {
+        "description": "Error interno del servidor",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "example": "INSUFFICIENT_FUNDS"
+          },
+          "message": {
+            "type": "string",
+            "example": "Saldo insuficiente para realizar el retiro."
+          }
+        }
+      },
+      "PaginationMeta": {
+        "type": "object",
+        "description": "Metadatos de paginación incluidos en respuestas de listado",
+        "properties": {
+          "page": {
+            "type": "integer"
+          },
+          "pageSize": {
+            "type": "integer"
+          },
+          "totalItems": {
+            "type": "integer"
+          },
+          "totalPages": {
+            "type": "integer"
+          }
+        }
+      },
+      "MonetizationApplication": {
+        "type": "object",
+        "required": [
+          "channelId",
+          "acceptedTerms"
+        ],
+        "properties": {
+          "channelId": {
+            "type": "string"
+          },
+          "acceptedTerms": {
+            "type": "boolean",
+            "description": "El creador debe aceptar los términos del programa de socios"
+          }
+        }
+      },
+      "EligibilityStatus": {
+        "type": "object",
+        "properties": {
+          "channelId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "APTO",
+              "PENDIENTE",
+              "RECHAZADO"
+            ]
+          },
+          "isMonetizationEnabled": {
+            "type": "boolean"
+          },
+          "evaluatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "rejectionReason": {
+            "type": "string",
+            "nullable": true,
+            "description": "Motivo de rechazo cuando status=RECHAZADO (ej. suscriptores insuficientes, horas insuficientes, incumplimiento de políticas)"
+          }
+        }
+      },
+      "MonetizationToggle": {
+        "type": "object",
+        "required": [
+          "enabled"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "true para activar monetización, false para desactivar"
+          }
+        }
+      },
+      "MonetizationSettings": {
+        "type": "object",
+        "description": "Estado actual de monetización de un canal o contenido",
+        "properties": {
+          "resourceId": {
+            "type": "string",
+            "description": "channelId o contentId según resourceType"
+          },
+          "resourceType": {
+            "type": "string",
+            "enum": [
+              "CHANNEL",
+              "CONTENT"
+            ]
+          },
+          "monetizationEnabled": {
+            "type": "boolean"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "MembershipTierInput": {
+        "type": "object",
+        "required": [
+          "channelId",
+          "name",
+          "price",
+          "currency"
+        ],
+        "properties": {
+          "channelId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "example": "Miembro Bronce"
+          },
+          "price": {
+            "type": "number",
+            "minimum": 0,
+            "example": 4.99
+          },
+          "currency": {
+            "type": "string",
+            "example": "USD"
+          },
+          "benefits": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "example": [
+              "Badge exclusivo",
+              "Acceso a posts privados"
+            ]
+          }
+        }
+      },
+      "MembershipTier": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "channelId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "price": {
+            "type": "number"
+          },
+          "currency": {
+            "type": "string",
+            "example": "USD"
+          },
+          "benefits": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "MembershipPurchase": {
+        "type": "object",
+        "required": [
+          "tierId",
+          "viewerId"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "tierId": {
+            "type": "string"
+          },
+          "viewerId": {
+            "type": "string"
+          },
+          "channelId": {
+            "type": "string"
+          },
+          "grossAmount": {
+            "type": "number"
+          },
+          "currency": {
+            "type": "string",
+            "example": "USD"
+          },
+          "purchasedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "validUntil": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Fin del período de membresía vigente"
+          }
+        }
+      },
+      "TipConfig": {
+        "type": "object",
+        "properties": {
+          "videoId": {
+            "type": "string"
+          },
+          "tipsEnabled": {
+            "type": "boolean"
+          },
+          "minimumAmount": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Monto mínimo de propina aceptado"
+          },
+          "currency": {
+            "type": "string",
+            "example": "USD"
+          }
+        }
+      },
+      "TipEvent": {
+        "type": "object",
+        "required": [
+          "videoId",
+          "viewerId",
+          "amount",
+          "currency"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "videoId": {
+            "type": "string"
+          },
+          "channelId": {
+            "type": "string"
+          },
+          "viewerId": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number",
+            "minimum": 0
+          },
+          "currency": {
+            "type": "string",
+            "example": "USD"
+          },
+          "message": {
+            "type": "string",
+            "nullable": true,
+            "description": "Mensaje opcional del espectador junto a la propina"
+          },
+          "sentAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "RevenueRecord": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "channelId": {
+            "type": "string",
+            "description": "Canal al que se atribuye el ingreso (ID compartido con Catálogo)"
+          },
+          "contentId": {
+            "type": "string",
+            "nullable": true,
+            "description": "catalogItemId del video asociado al ingreso. Nullable para ingresos de membresía no vinculados a un video específico."
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "ADS",
+              "MEMBERSHIP",
+              "TIP"
+            ]
+          },
+          "grossAmount": {
+            "type": "number",
+            "description": "Monto bruto total del ingreso antes del reparto"
+          },
+          "platformFeeRate": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "description": "Porcentaje que retiene la plataforma (0.0 a 1.0). Ej: 0.45 = 45%"
+          },
+          "creatorShareAmount": {
+            "type": "number",
+            "description": "Monto neto que corresponde al creador tras aplicar el revenue share"
+          },
+          "currency": {
+            "type": "string",
+            "example": "USD"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PENDING",
+              "CONFIRMED",
+              "PAID"
+            ]
+          },
+          "recordedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "channelId",
+          "source",
+          "grossAmount",
+          "currency",
+          "status"
+        ]
+      },
+      "VideoEarnings": {
+        "type": "object",
+        "description": "Desglose de ganancias por video individual",
+        "properties": {
+          "contentId": {
+            "type": "string",
+            "description": "catalogItemId del video"
+          },
+          "totalEarnings": {
+            "type": "number"
+          },
+          "rpm": {
+            "type": "number",
+            "description": "Revenue Per Mille: ingresos netos por cada 1.000 visualizaciones"
+          },
+          "breakdownBySource": {
+            "type": "object",
+            "description": "Desglose de ganancias por fuente: { ADS: 10.5, MEMBERSHIP: 3.2, TIP: 0.5 }",
+            "additionalProperties": {
+              "type": "number"
+            }
+          }
+        }
+      },
+      "EarningsReport": {
+        "type": "object",
+        "properties": {
+          "creatorId": {
+            "type": "string"
+          },
+          "periodStart": {
+            "type": "string",
+            "format": "date"
+          },
+          "periodEnd": {
+            "type": "string",
+            "format": "date"
+          },
+          "totalEarnings": {
+            "type": "number",
+            "description": "Total de ganancias netas del creador en el período"
+          },
+          "currency": {
+            "type": "string",
+            "example": "USD"
+          },
+          "rpm": {
+            "type": "number",
+            "description": "RPM global del período"
+          },
+          "breakdownBySource": {
+            "type": "object",
+            "description": "Desglose de ganancias totales por fuente de ingreso",
+            "additionalProperties": {
+              "type": "number"
+            }
+          },
+          "breakdownByVideo": {
+            "type": "array",
+            "description": "Desglose paginado de ganancias por video individual",
+            "items": {
+              "$ref": "#/components/schemas/VideoEarnings"
+            }
+          },
+          "pagination": {
+            "$ref": "#/components/schemas/PaginationMeta"
+          }
+        }
+      },
+      "CreatorBalance": {
+        "type": "object",
+        "properties": {
+          "creatorId": {
+            "type": "string"
+          },
+          "availableBalance": {
+            "type": "number",
+            "description": "Saldo disponible para retiro inmediato"
+          },
+          "pendingBalance": {
+            "type": "number",
+            "description": "Ingresos en estado PENDING aún no disponibles para retiro"
+          },
+          "currency": {
+            "type": "string",
+            "example": "USD"
+          },
+          "minimumWithdrawalAmount": {
+            "type": "number",
+            "description": "Monto mínimo requerido para solicitar un retiro"
+          }
+        },
+        "required": [
+          "creatorId",
+          "availableBalance",
+          "pendingBalance",
+          "currency",
+          "minimumWithdrawalAmount"
+        ]
+      },
+      "Payout": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "creatorId": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number"
+          },
+          "currency": {
+            "type": "string",
+            "example": "USD"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PROCESSING",
+              "COMPLETED",
+              "FAILED"
+            ]
+          },
+          "requestedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "processedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "Fecha de procesamiento efectivo. Null si status=PROCESSING"
+          }
+        },
+        "required": [
+          "id",
+          "creatorId",
+          "amount",
+          "currency",
+          "status",
+          "requestedAt"
+        ]
+      },
+      "TaxDocument": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "creatorId": {
+            "type": "string"
+          },
+          "documentType": {
+            "type": "string",
+            "example": "FORM_1099",
+            "description": "Tipo de documento fiscal (ej. FORM_1099, WITHHOLDING_CERTIFICATE, ANNUAL_SUMMARY)"
+          },
+          "year": {
+            "type": "integer",
+            "example": 2025
+          },
+          "downloadUrl": {
+            "type": "string",
+            "format": "uri",
+            "description": "URL firmada para descargar el documento"
+          },
+          "generatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      }
+    }
+  },
+  "security": [
+    {
+      "BearerAuth": []
+    }
+  ]
+}
