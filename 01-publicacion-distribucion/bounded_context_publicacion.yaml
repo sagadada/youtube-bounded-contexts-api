@@ -1,0 +1,699 @@
+openapi: 3.0.3
+info:
+  title: "1. Bounded Context: Publicación y Distribución de Contenido"
+  version: 1.0.0
+  description: |
+    Gestionar el ciclo de vida técnico del video: subida, procesamiento, almacenamiento, reproducción y transmisión en vivo.
+
+    ### Eventos Publicados Obligatorios (Requisitos de Integración):
+    - `content.playback.upload_completed`: Emitido cuando el contenido ha sido subido completamente y validado.
+    - `content.playback.video_processing_completed`: Emitido cuando el procesamiento finaliza con éxito (Asset listo para publicación editorial).
+    - `content.playback.video_processing_failed`: Emitido cuando el procesamiento finaliza en fallo.
+    - `content.playback.playback_session_completed`: Emitido cuando una sesión de reproducción ha sido completada por el usuario.
+    - `content.playback.live_stream_started`: Emitido cuando una transmisión en vivo ha sido iniciada.
+    - `content.playback.live_stream_ended`: Emitido cuando una transmisión en vivo ha sido finalizada.
+
+servers:
+  - url: http://playback-service.youtube.internal/api/v1
+
+tags:
+  - name: Uploads
+    description: Gestión del ciclo de vida de la subida de archivos binarios (RF-P1)
+  - name: Assets
+    description: Consulta y reintentos del procesamiento técnico de videos (RF-P2 y RF-P5)
+  - name: Playback
+    description: Orquestación de la entrega adaptativa de video y telemetría (RF-P3)
+  - name: Live
+    description: Configuración y control de flujos de transmisión en vivo (RF-P4)
+
+security:
+  - bearerAuth: []
+
+paths:
+
+  # ==========================================
+  # GESTIÓN DE SUBIDAS (RF-P1)
+  # ==========================================
+
+  /uploads:
+    post:
+      tags: [Uploads]
+      summary: Iniciar sesión de subida de video
+      description: Inicializa el proceso reservando un identificador y permitiendo definir el tamaño total para validar cuotas.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUploadRequest'
+      responses:
+        "201":
+          description: Sesión de upload creada exitosamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadSession'
+
+  /uploads/{uploadId}:
+    get:
+      tags: [Uploads]
+      summary: Obtener estado e informar el progreso de la subida
+      description: Retorna el porcentaje actual de carga o los bloques faltantes.
+      parameters:
+        - name: uploadId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Estado de la sesión de subida
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadSession'
+        "404":
+          description: Sesión de subida no encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    delete:
+      tags: [Uploads]
+      summary: Cancelar una subida en curso
+      description: Detiene la subida de forma inmediata y gatilla la limpieza de los bloques huérfanos en el almacenamiento intermedio.
+      parameters:
+        - name: uploadId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Subida cancelada y recursos liberados con éxito
+
+  /uploads/{uploadId}/file:
+    put:
+      tags: [Uploads]
+      summary: Subida completa del archivo en un único bloque
+      description: Flujo optimizado para archivos pequeños o conexiones de alta velocidad que no requieren segmentación.
+      parameters:
+        - name: uploadId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "200":
+          description: Archivo completo recibido correctamente
+        "404":
+          description: Sesión de subida no encontrada
+
+  /uploads/{uploadId}/parts/{partNumber}:
+    put:
+      tags: [Uploads]
+      summary: Subida por partes o fragmentos (Chunked Upload)
+      description: Permite enviar fragmentos binarios específicos. Crucial para la resiliencia en subidas de gran tamaño.
+      parameters:
+        - name: uploadId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: partNumber
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "200":
+          description: Fragmento (chunk) recibido y almacenado de forma segura
+        "400":
+          description: Fragmento inválido o fuera de rango técnico
+
+  /uploads/{uploadId}/complete:
+    post:
+      tags: [Uploads]
+      summary: Finalizar subida y validar integridad para disparar procesamiento
+      description: |
+        Valida rigurosamente que la subida finalizó correctamente. En subidas por partes,
+        compara la lista enviada por el cliente con los hashes MD5 persistidos en el servidor
+        para evitar archivos corruptos o incompletos antes de iniciar el transcoding de forma automática.
+
+        **Evento emitido:** `content.playback.upload_completed`
+        Al completarse la validación, el sistema emite este evento hacia el bus de mensajería
+        interno e inicia el pipeline de transcoding de forma automática (RF-P2).
+      parameters:
+        - name: uploadId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: false
+        description: Mapeo de fragmentos para verificar la integridad del archivo (requerido si se usó subida chunked).
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CompleteUploadRequest'
+      responses:
+        "200":
+          description: |
+            Validación exitosa. Sesión consolidada e inicio automático del procesamiento técnico del video.
+            Emite el evento `content.playback.upload_completed`.
+        "400":
+          description: Error de validación. El archivo está incompleto (faltan chunks) o corrupto (los ETags/hashes no coinciden).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "404":
+          description: Sesión de subida no encontrada
+
+  # ==========================================
+  # ASSETS TÉCNICOS (RF-P2 y RF-P5)
+  # ==========================================
+
+  /assets:
+    get:
+      tags: [Assets]
+      summary: Listar los contenidos técnicos asociados a un creador
+      description: |
+        Retorna el catálogo técnico de assets del creador con paginación por cursor (RNF-3).
+        No incluye metadata editorial (título, descripción, tags); esa información pertenece
+        al contexto de Catálogo Editorial.
+      parameters:
+        - name: creatorId
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Identificador del creador cuyos assets se desean listar.
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+          description: Cantidad máxima de resultados por página.
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Cursor opaco devuelto en la respuesta anterior para obtener la siguiente página.
+      responses:
+        "200":
+          description: Catálogo técnico de assets del creador
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VideoAssetPage'
+
+  /assets/{assetId}:
+    get:
+      tags: [Assets]
+      summary: Consultar el detalle técnico de un asset
+      description: Permite revisar duraciones exactas, formatos generados y estado de procesamiento.
+      parameters:
+        - name: assetId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Detalle del asset técnico encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VideoAsset'
+        "404":
+          description: Asset no encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /assets/{assetId}/retry-processing:
+    post:
+      tags: [Assets]
+      summary: Reintentar un procesamiento técnico fallido
+      description: |
+        Permite reencolar de manera manual o programática la transcodificación de un video
+        que haya quedado en estado `FAILED`.
+
+        **Evento emitido (eventual):** Al completarse el reprocesamiento exitosamente, el sistema
+        emite `content.playback.video_processing_completed`. Si falla nuevamente, emite
+        `content.playback.video_processing_failed`.
+      parameters:
+        - name: assetId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Reprocesamiento técnico iniciado con éxito
+        "404":
+          description: Asset no encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "409":
+          description: El asset no está en estado FAILED y no puede ser reprocesado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ==========================================
+  # REPRODUCCIÓN Y TELEMETRÍA (RF-P3)
+  # ==========================================
+
+  /playback/{assetId}:
+    get:
+      tags: [Playback]
+      summary: Obtener información para reproducir un video (Manifiesto Adaptativo)
+      description: Retorna las URLs de los manifiestos de streaming ajustados dinámicamente al dispositivo, ancho de banda o geolocalización.
+      parameters:
+        - name: assetId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: deviceType
+          in: query
+          required: false
+          schema:
+            type: string
+            example: "SMART_TV"
+        - name: networkType
+          in: query
+          required: false
+          schema:
+            type: string
+            example: "4G"
+      responses:
+        "200":
+          description: Datos de streaming adaptativo devueltos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaybackManifest'
+        "404":
+          description: Asset no encontrado o no disponible para reproducción
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /playback-sessions:
+    post:
+      tags: [Playback]
+      summary: Registrar el inicio de una sesión de reproducción
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePlaybackSessionRequest'
+      responses:
+        "201":
+          description: Sesión de reproducción inicializada para seguimiento técnico
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaybackSessionResponse'
+
+  /playback-sessions/{sessionId}/metrics:
+    patch:
+      tags: [Playback]
+      summary: Capturar métricas técnicas y progreso de la sesión en tiempo real
+      description: |
+        Registra de manera continua la duración vista, posición actual, caídas de calidad
+        o interrupciones de buffer detectadas por el reproductor.
+
+        **Evento emitido (condicional):** Cuando `isFinalStream` es `true`, el sistema consolida
+        la sesión y emite `content.playback.playback_session_completed`, que es consumido por
+        los contextos de Descubrimiento (señales de watch time) y Audiencia (historial de usuario).
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlaybackTelemetryInput'
+      responses:
+        "200":
+          description: Métricas técnicas consolidadas con éxito
+        "404":
+          description: Sesión de reproducción no encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ==========================================
+  # TRANSMISIÓN EN VIVO (RF-P4)
+  # ==========================================
+
+  /live-streams:
+    post:
+      tags: [Live]
+      summary: Configurar una transmisión en vivo
+      description: Registra la intención de transmitir en vivo y genera los parámetros obligatorios de ingesta para codificadores externos.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateLiveStreamRequest'
+      responses:
+        "201":
+          description: Configuración de transmisión en vivo lista
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LiveIngestConfig'
+
+  /live-streams/{liveId}/status:
+    post:
+      tags: [Live]
+      summary: Controlar el estado técnico del flujo en vivo (Iniciar, Pausar, Finalizar)
+      description: |
+        Modifica el estado de la transmisión en vivo según la acción solicitada.
+
+        **Eventos emitidos:**
+        - Acción `START`: emite `content.playback.live_stream_started`
+        - Acción `END`: emite `content.playback.live_stream_ended`
+      parameters:
+        - name: liveId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LiveStreamStatusRequest'
+      responses:
+        "200":
+          description: Estado del flujo modificado correctamente
+        "404":
+          description: Transmisión en vivo no encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "409":
+          description: La acción solicitada no es válida para el estado actual de la transmisión
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /live-streams/{liveId}/vod:
+    post:
+      tags: [Live]
+      summary: Generar versión grabada reutilizable (Video On-Demand)
+      description: |
+        Toma la grabación cruda del live finalizado y la inyecta al pipeline de procesamiento
+        para transformarla en un asset normal.
+
+        **Evento emitido (eventual):** Al completarse el procesamiento del VOD, emite
+        `content.playback.video_processing_completed`, notificando al contexto de Catálogo
+        Editorial que el asset está técnicamente listo para su publicación.
+      parameters:
+        - name: liveId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "202":
+          description: Procesamiento VOD de la transmisión aceptado y en cola
+
+# ==========================================
+# COMPONENTES / ESQUEMAS Reutilizables
+# ==========================================
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+
+    CreateUploadRequest:
+      type: object
+      required: [creatorId, fileName, totalSize]
+      properties:
+        creatorId:
+          type: string
+          description: Identificador del creador que inicia la subida (RNF-2).
+        fileName:
+          type: string
+        totalSize:
+          type: integer
+          description: Tamaño total del archivo en bytes.
+
+    UploadSession:
+      type: object
+      properties:
+        uploadId:
+          type: string
+        creatorId:
+          type: string
+        status:
+          type: string
+          enum: [CREATED, UPLOADING, COMPLETED, CANCELLED]
+        progressPercentage:
+          type: integer
+          minimum: 0
+          maximum: 100
+
+    CompleteUploadRequest:
+      type: object
+      properties:
+        parts:
+          type: array
+          description: Listado detallado de fragmentos cargados para verificación cruzada.
+          items:
+            type: object
+            required: [partNumber, etag]
+            properties:
+              partNumber:
+                type: integer
+              etag:
+                type: string
+                description: Hash MD5 generado por el cliente para asegurar que el fragmento no se corrompió.
+
+    VideoAsset:
+      type: object
+      properties:
+        assetId:
+          type: string
+          description: Identificador único del asset técnico (RNF-2). Compartido con Catálogo para vinculación.
+        uploadId:
+          type: string
+          description: Referencia a la sesión de subida que originó este asset.
+        creatorId:
+          type: string
+        durationSeconds:
+          type: integer
+        processingStatus:
+          type: string
+          enum: [PENDING, PROCESSING, COMPLETED, FAILED]
+        processingProgressPercentage:
+          type: integer
+          minimum: 0
+          maximum: 100
+        technicalQualities:
+          type: array
+          items:
+            $ref: '#/components/schemas/TechnicalQuality'
+
+    TechnicalQuality:
+      type: object
+      required: [resolution, codec, status]
+      properties:
+        resolution:
+          type: string
+          enum: ["360p", "480p", "720p", "1080p", "1440p", "2160p"]
+          example: "1080p"
+        codec:
+          type: string
+          enum: [H264, VP9, AV1]
+          example: "VP9"
+        status:
+          type: string
+          enum: [PENDING, PROCESSING, COMPLETED, FAILED]
+        bitrateKbps:
+          type: integer
+          example: 5000
+
+    VideoAssetPage:
+      type: object
+      description: Respuesta paginada de assets técnicos (RNF-3).
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/VideoAsset'
+        nextCursor:
+          type: string
+          nullable: true
+          description: Cursor para obtener la siguiente página. Nulo si no hay más resultados.
+        total:
+          type: integer
+          description: Total de assets del creador (aproximado).
+
+    PlaybackManifest:
+      type: object
+      properties:
+        assetId:
+          type: string
+        streamUrl:
+          type: string
+          description: Enlace directo al manifiesto adaptativo (.m3u8 o .mpd).
+        protocol:
+          type: string
+          enum: [HLS, DASH]
+
+    CreatePlaybackSessionRequest:
+      type: object
+      required: [assetId, userId, initialQuality]
+      properties:
+        assetId:
+          type: string
+        userId:
+          type: string
+        initialQuality:
+          type: string
+          example: "1080p"
+
+    PlaybackSessionResponse:
+      type: object
+      properties:
+        sessionId:
+          type: string
+
+    PlaybackTelemetryInput:
+      type: object
+      required: [watchTimeSeconds, positionSeconds, currentQuality, bufferInterruptionsCount]
+      properties:
+        watchTimeSeconds:
+          type: integer
+          description: Tiempo total acumulado que el usuario vio el video en esta ráfaga.
+        positionSeconds:
+          type: integer
+          description: Posición actual del cursor de reproducción en segundos. Permite reconstruir el progreso exacto de la sesión.
+        currentQuality:
+          type: string
+          example: "720p"
+        bufferInterruptionsCount:
+          type: integer
+          description: Número de veces que el video se detuvo por almacenamiento en búfer.
+        isFinalStream:
+          type: boolean
+          description: |
+            Indica si el usuario cerró el reproductor, finalizando la sesión de forma definitiva.
+            Cuando es `true`, el sistema emite el evento `content.playback.playback_session_completed`.
+
+    CreateLiveStreamRequest:
+      type: object
+      required: [creatorId]
+      properties:
+        creatorId:
+          type: string
+
+    LiveStreamStatusRequest:
+      type: object
+      required: [action]
+      properties:
+        action:
+          type: string
+          enum: [START, PAUSE, END]
+
+    LiveIngestConfig:
+      type: object
+      properties:
+        liveId:
+          type: string
+        primaryRtmpUrl:
+          type: string
+          description: URL principal del servidor de ingesta de video.
+          example: "rtmp://a.rtmp.youtube.internal/live2"
+        backupRtmpUrl:
+          type: string
+          description: URL de respaldo (Backup) esencial para OBS/vMix en entornos profesionales.
+          example: "rtmp://b.rtmp.youtube.internal/live2?backup=1"
+        streamKey:
+          type: string
+          description: Clave secreta de transmisión para configurar en OBS/vMix.
+
+    ErrorResponse:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          example: "INVALID_FILE_INTEGRITY"
+        message:
+          type: string
+          example: "La suma de verificación de las partes no coincide. El archivo está incompleto."
+        details:
+          type: array
+          items:
+            type: string
+
+    VideoProcessingCompletedEvent:
+      type: object
+      description: Payload del evento 'content.playback.video_processing_completed'. Define el contrato de integración con el Bounded Context de Catálogo Editorial.
+      required: [eventId, timestamp, assetId, creatorId, durationSeconds]
+      properties:
+        eventId:
+          type: string
+          format: uuid
+        timestamp:
+          type: string
+          format: date-time
+        assetId:
+          type: string
+          description: Identificador del asset listo. Catálogo usará este ID para habilitar la publicación.
+        creatorId:
+          type: string
+        durationSeconds:
+          type: integer
+        availableQualities:
+          type: array
+          items:
+            type: string
+          example: ["360p", "720p", "1080p"]
