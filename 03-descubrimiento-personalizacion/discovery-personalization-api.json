@@ -2,6 +2,7 @@
   "openapi": "3.0.4",
   "info": {
     "title": "Descubrimiento y Personalización API",
+    "version": "1.0.0",
     "description": "API para búsqueda de contenido, feeds personalizados, recomendaciones, tendencias y captura de señales de ranking. Bounded Context independiente dentro de la plataforma de video.\n\n### Eventos que consume\n* `catalog.content.published` / `updated` / `restricted` **(Catálogo)**: Actualiza o remueve ítems del índice de búsqueda.\n* `audience.engagement.registered` **(Audiencia)**: Alimenta el perfil de intereses del usuario.\n* `playback.session.completed` **(Publicación)**: Registra watch time efectivo.\n\n### Eventos que emite\n* `discovery.search.performed`: Emitido cuando un usuario realiza una búsqueda.\n* `discovery.recommendation.served`: Emitido para analytics cuando se entrega un feed.\n\n### Restricciones de diseño\n* Devuelve **referencias a contenido** mediante IDs, no duplica la metadata editorial completa ni provee el stream de video.\n* No define reglas de visibilidad, delega y respeta estrictamente las restricciones dictadas por el contexto de Catálogo.\n* El motor de ranking y la personalización son responsabilidad exclusiva y aislada de este contexto.",
     "contact": {
       "name": "Equipo Descubrimiento",
@@ -888,12 +889,10 @@
             ]
           },
           "videoRef": {
-            "$ref": "#/components/schemas/VideoRef",
-            "nullable": true
+            "$ref": "#/components/schemas/VideoRef"
           },
           "channelRef": {
-            "$ref": "#/components/schemas/ChannelRef",
-            "nullable": true
+            "$ref": "#/components/schemas/ChannelRef"
           },
           "score": {
             "type": "number",
@@ -1048,8 +1047,7 @@
             "format": "float"
           },
           "recommendationReason": {
-            "$ref": "#/components/schemas/RecommendationReason",
-            "nullable": true
+            "$ref": "#/components/schemas/RecommendationReason"
           }
         }
       },
@@ -1504,8 +1502,7 @@
             }
           },
           "preferredDurationRange": {
-            "$ref": "#/components/schemas/DurationRange",
-            "nullable": true
+            "$ref": "#/components/schemas/DurationRange"
           }
         }
       },
