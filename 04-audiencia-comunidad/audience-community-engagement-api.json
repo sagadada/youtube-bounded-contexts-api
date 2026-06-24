@@ -2,6 +2,7 @@
   "openapi": "3.0.4",
   "info": {
     "title": "Audiencia, Comunidad y Engagement API",
+    "version": "1.0.0",
     "description": "API para gestionar la relación social entre usuarios, creadores y contenido: suscripciones, reacciones, comentarios, notificaciones, historial personal y posts de comunidad. Bounded Context independiente dentro de la plataforma de video.\n\n### Eventos que consume\n* `catalog.content.published` **(Catálogo)**: Gatilla notificaciones a los suscriptores del canal.\n* `catalog.content.restricted` **(Catálogo)**: Oculta interacciones (comentarios/reacciones) asociadas a contenido no visible.\n\n### Eventos que emite\n* `audience.subscription.created` / `deleted`: Emitido cuando un usuario sigue o deja de seguir un canal.\n* `audience.reaction.registered`: Emitido cuando se deja un like o dislike.\n* `audience.comment.published` / `deleted`: Emitido al interactuar en los hilos de comentarios.\n* `audience.engagement.added`: Evento genérico consumido por Descubrimiento para recalcular intereses.\n\n### Restricciones de diseño\n* El concepto de 'Suscripción' modela una **relación social** de seguimiento, no una suscripción de pago (eso pertenece a Monetización).\n* Se valida la existencia de contenido/canal mediante identificadores compartidos, pero **no duplica** su metadata editorial.",
     "contact": {
       "name": "Equipo Audiencia",
@@ -1984,8 +1985,7 @@
                 "type": "string"
               },
               "pinnedComment": {
-                "$ref": "#/components/schemas/Comment",
-                "nullable": true
+                "$ref": "#/components/schemas/Comment"
               },
               "items": {
                 "type": "array",
@@ -2484,8 +2484,7 @@
             "nullable": true
           },
           "poll": {
-            "$ref": "#/components/schemas/Poll",
-            "nullable": true
+            "$ref": "#/components/schemas/Poll"
           },
           "likeCount": {
             "type": "integer",
